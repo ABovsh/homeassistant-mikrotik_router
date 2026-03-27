@@ -4,6 +4,42 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260327-v240-issues — v2.4.0 feature completion (3 issues + SonarCloud)
+
+**Date:** 2026-03-27
+**Branch:** `feature/v240-issues`
+**Status:** In Review (targeting dev)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | **New device discovery:** `_has_new_uids()` tracks UIDs per data path; dispatcher re-enabled with guard — only fires when new UIDs appear. `_known_uids` dict added to coordinator init. |
+| `entity.py` | **Entity guard fix:** `_check_entity_exists()` now skips entities already in `platform.entities` before attempting `async_add_entities`, preventing duplicate registration errors. |
+| `coordinator.py` | **Wireless detection:** `async_process_host()` sets `is_wireless` bool on each host using `_is_wireless_host()`. Added to `_HOST_DEFAULTS`. |
+| `device_tracker.py` | **Wireless detection:** Replaced 3 `source in ["capsman", "wireless"]` checks with `is_wireless` field — fixes hAP ac2 bridge-discovered wireless clients showing wired behaviour. |
+| `coordinator.py` | **Firewall refactor:** Extracted `_get_firewall_rules()` helper, `_ENABLED_VAL` and `_SKIP_DYNAMIC_JUMP` constants. get_nat/mangle/filter/raw now delegate to shared method. |
+| `coordinator.py` | **SonarCloud:** Extracted `_PPP_NOT_CONNECTED` constant (S1192 "not connected" duplication). |
+| `tests/` | 8 new tests: `_has_new_uids` (6), `async_process_host_sets_is_wireless` (1), bridge wireless tracker behaviour (1). 573 total passing. |
+| `docs/ISSUES.md` | Closed ISS-260320-new-device-discovery, ISS-260320-refactor-dedup, ISS-260326-tracker-wireless-detection |
+
+### Why
+
+Three backlog issues required for v2.4.0 release:
+- ISS-260320-new-device-discovery: New network devices required HA restart to appear. Dispatcher was disabled in v2.3.8 due to log spam.
+- ISS-260326-tracker-wireless-detection: hAP ac2 wireless clients discovered via bridge table were treated as wired (wrong icon, wrong connection logic).
+- ISS-260320-refactor-dedup: Firewall rule methods shared ~30 LOC of boilerplate (parse_api + dedup call).
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint | 0 errors | ✅ |
+| Ruff format | 0 reformats needed | ✅ |
+| Tests | 573 passed, 5 skipped | ✅ |
+
+---
+
 ## CR-260327-phase5-tests — Phase 5 integration tests and coverage gap closure
 
 **Date:** 2026-03-27

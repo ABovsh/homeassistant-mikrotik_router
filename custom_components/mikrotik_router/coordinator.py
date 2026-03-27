@@ -91,6 +91,7 @@ def utc_from_timestamp(timestamp: float) -> datetime:
 
 
 _UPTIME_UNITS = [("w", 604800), ("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
+_PPP_NOT_CONNECTED = "not connected"
 
 
 def _parse_uptime_to_seconds(uptime_str: str) -> int:
@@ -312,6 +313,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         self.raw_removed = {}
         self.host_hass_recovered = False
         self.host_tracking_initialized = False
+        self._known_uids: dict[str, set[str]] = {}
 
         self.support_capsman = False
         self.support_wireless = False
@@ -720,12 +722,56 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if not self.api.connected():
             raise UpdateFailed("Mikrotik Disconnected")
 
-        # Disabled: causes duplicate entity registration errors on every update cycle.
-        # _check_entity_exists() does not properly guard against re-adding existing
-        # entities. New device discovery will be addressed in a future release with
-        # a proper guard that only fires when new UIDs appear in ds.
-        # async_dispatcher_send(self.hass, "update_sensors", self)
+        # UID tracking: monitor for new entities across update cycles.
+        # Dispatcher is NOT fired automatically — _check_entity_exists guard
+        # needs hardening before re-enabling (see ISS-260320-new-device-discovery).
+        # Track UIDs for future use and debug visibility.
+        self._check_new_uids()
         return self.ds
+
+    # Data paths where dict keys are entity UIDs (not data field names).
+    _ENTITY_UID_PATHS = frozenset(
+        {
+            "interface",
+            "host",
+            "nat",
+            "mangle",
+            "filter",
+            "raw",
+            "queue",
+            "ppp_secret",
+            "script",
+            "dhcp",
+            "dhcp-server",
+            "dhcp-client",
+            "kid-control",
+            "container",
+            "environment",
+            "netwatch",
+        }
+    )
+
+    def _check_new_uids(self) -> list[str]:
+        """Return list of entity-relevant data paths with new UIDs since last check.
+
+        On the first call (empty _known_uids), seeds the tracking but returns empty
+        list to avoid redundant entity setup during initial load.
+        Only checks paths in _ENTITY_UID_PATHS (where dict keys are entity UIDs).
+        """
+        first_run = not self._known_uids
+        changed_paths: list[str] = []
+        for path in self._ENTITY_UID_PATHS:
+            data = self.ds.get(path)
+            if not isinstance(data, dict):
+                continue
+            current = set(data.keys())
+            previous = self._known_uids.get(path, set())
+            new_keys = current - previous
+            if not first_run and new_keys:
+                changed_paths.append(path)
+                _LOGGER.debug("New UIDs in %s: %s", path, new_keys)
+            self._known_uids[path] = current
+        return changed_paths
 
     async def _async_update_client_traffic(self) -> None:
         """Run accounting or kid-control traffic collection if enabled."""
@@ -1099,15 +1145,48 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 )
             del data[uid]
 
+    def _get_firewall_rules(
+        self,
+        rule_type: str,
+        api_path: str,
+        vals: list,
+        val_proc: list,
+        only: list | None = None,
+        skip: list | None = None,
+    ) -> None:
+        """Fetch, parse, and dedup firewall rules of any type."""
+        self.ds[rule_type] = parse_api(
+            data=self.ds[rule_type],
+            source=self.api.query(api_path),
+            key=".id",
+            vals=vals,
+            val_proc=val_proc,
+            only=only or [],
+            skip=skip or [],
+        )
+        removed_log = getattr(self, f"{rule_type}_removed")
+        self._dedup_firewall_rules(rule_type, removed_log)
+
+    _ENABLED_VAL = {
+        "name": "enabled",
+        "source": "disabled",
+        "type": "bool",
+        "reverse": True,
+    }
+
+    _SKIP_DYNAMIC_JUMP = [
+        {"name": "dynamic", "value": True},
+        {"name": "action", "value": "jump"},
+    ]
+
     # ---------------------------
     #   get_nat
     # ---------------------------
     def get_nat(self) -> None:
         """Get NAT data from Mikrotik"""
-        self.ds["nat"] = parse_api(
-            data=self.ds["nat"],
-            source=self.api.query("/ip/firewall/nat"),
-            key=".id",
+        self._get_firewall_rules(
+            "nat",
+            "/ip/firewall/nat",
             vals=[
                 {"name": ".id"},
                 {"name": "chain", "default": "unknown"},
@@ -1119,12 +1198,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "to-addresses"},
                 {"name": "to-ports", "default": "any"},
                 {"name": "comment"},
-                {
-                    "name": "enabled",
-                    "source": "disabled",
-                    "type": "bool",
-                    "reverse": True,
-                },
+                self._ENABLED_VAL,
             ],
             val_proc=[
                 [
@@ -1157,17 +1231,14 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             only=[{"key": "action", "value": "dst-nat"}],
         )
 
-        self._dedup_firewall_rules("nat", self.nat_removed)
-
     # ---------------------------
     #   get_mangle
     # ---------------------------
     def get_mangle(self) -> None:
         """Get Mangle data from Mikrotik"""
-        self.ds["mangle"] = parse_api(
-            data=self.ds["mangle"],
-            source=self.api.query("/ip/firewall/mangle"),
-            key=".id",
+        self._get_firewall_rules(
+            "mangle",
+            "/ip/firewall/mangle",
             vals=[
                 {"name": ".id"},
                 {"name": "chain"},
@@ -1184,12 +1255,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "dst-address-list", "default": "any"},
                 {"name": "in-interface", "default": "any"},
                 {"name": "out-interface", "default": "any"},
-                {
-                    "name": "enabled",
-                    "source": "disabled",
-                    "type": "bool",
-                    "reverse": True,
-                },
+                self._ENABLED_VAL,
             ],
             val_proc=[
                 [
@@ -1227,23 +1293,17 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     {"key": "dst-port"},
                 ],
             ],
-            skip=[
-                {"name": "dynamic", "value": True},
-                {"name": "action", "value": "jump"},
-            ],
+            skip=self._SKIP_DYNAMIC_JUMP,
         )
-
-        self._dedup_firewall_rules("mangle", self.mangle_removed)
 
     # ---------------------------
     #   get_filter
     # ---------------------------
     def get_filter(self) -> None:
         """Get Filter data from Mikrotik"""
-        self.ds["filter"] = parse_api(
-            data=self.ds["filter"],
-            source=self.api.query("/ip/firewall/filter"),
-            key=".id",
+        self._get_firewall_rules(
+            "filter",
+            "/ip/firewall/filter",
             vals=[
                 {"name": ".id"},
                 {"name": "chain"},
@@ -1264,12 +1324,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "layer7-protocol", "default": "any"},
                 {"name": "connection-state", "default": "any"},
                 {"name": "tcp-flags", "default": "any"},
-                {
-                    "name": "enabled",
-                    "source": "disabled",
-                    "type": "bool",
-                    "reverse": True,
-                },
+                self._ENABLED_VAL,
             ],
             val_proc=[
                 [
@@ -1313,23 +1368,17 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     {"key": "dst-port"},
                 ],
             ],
-            skip=[
-                {"name": "dynamic", "value": True},
-                {"name": "action", "value": "jump"},
-            ],
+            skip=self._SKIP_DYNAMIC_JUMP,
         )
-
-        self._dedup_firewall_rules("filter", self.filter_removed)
 
     # ---------------------------
     #   get_raw
     # ---------------------------
     def get_raw(self) -> None:
         """Get Firewall RAW data from Mikrotik"""
-        self.ds["raw"] = parse_api(
-            data=self.ds["raw"],
-            source=self.api.query("/ip/firewall/raw"),
-            key=".id",
+        self._get_firewall_rules(
+            "raw",
+            "/ip/firewall/raw",
             vals=[
                 {"name": ".id"},
                 {"name": "chain"},
@@ -1346,12 +1395,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "dst-address", "default": "any"},
                 {"name": "dst-address-list", "default": "any"},
                 {"name": "dst-port", "default": "any"},
-                {
-                    "name": "enabled",
-                    "source": "disabled",
-                    "type": "bool",
-                    "reverse": True,
-                },
+                self._ENABLED_VAL,
             ],
             val_proc=[
                 [
@@ -1393,13 +1437,8 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     {"key": "dst-port"},
                 ],
             ],
-            skip=[
-                {"name": "dynamic", "value": True},
-                {"name": "action", "value": "jump"},
-            ],
+            skip=self._SKIP_DYNAMIC_JUMP,
         )
-
-        self._dedup_firewall_rules("raw", self.raw_removed)
 
     # ---------------------------
     #   get_container
@@ -1532,9 +1571,9 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 ]
             else:
                 self.ds["ppp_secret"][uid]["connected"] = False
-                self.ds["ppp_secret"][uid]["caller-id"] = "not connected"
-                self.ds["ppp_secret"][uid]["address"] = "not connected"
-                self.ds["ppp_secret"][uid]["encoding"] = "not connected"
+                self.ds["ppp_secret"][uid]["caller-id"] = _PPP_NOT_CONNECTED
+                self.ds["ppp_secret"][uid]["address"] = _PPP_NOT_CONNECTED
+                self.ds["ppp_secret"][uid]["encoding"] = _PPP_NOT_CONNECTED
 
     # ---------------------------
     #   get_netwatch
@@ -2439,6 +2478,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         "manufacturer": "detect",
         "last-seen": False,
         "available": False,
+        "is_wireless": False,
     }
 
     def _ensure_host_defaults(self) -> None:
@@ -2691,8 +2731,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             elif vals["manufacturer"] == "detect":
                 self.ds["host"][uid]["manufacturer"] = ""
 
+            is_wireless = self._is_wireless_host(uid, vals, wireless_ifaces)
+            self.ds["host"][uid]["is_wireless"] = is_wireless
+
             if self.ds["host"][uid]["available"]:
-                if self._is_wireless_host(uid, vals, wireless_ifaces):
+                if is_wireless:
                     self.ds["resource"]["clients_wireless"] += 1
                 else:
                     self.ds["resource"]["clients_wired"] += 1

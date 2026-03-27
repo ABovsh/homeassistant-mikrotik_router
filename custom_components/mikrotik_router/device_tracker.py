@@ -48,18 +48,20 @@ async def async_add_entities(
     for service in services:
         platform.async_register_entity_service(service[0], service[1], service[2])
 
+    tracker_coord = hass.data[DOMAIN][config_entry.entry_id].tracker_coordinator
+
     @callback
     async def async_update_controller(coordinator):
         """Update the values of the controller."""
+        if coordinator is not tracker_coord:
+            return
         if coordinator.data is None:
             return
         await _run_entity_setup_loop(
             hass, platform, config_entry, dispatcher, descriptions, coordinator
         )
 
-    await async_update_controller(
-        hass.data[DOMAIN][config_entry.entry_id].tracker_coordinator
-    )
+    await async_update_controller(tracker_coord)
 
     unsub = async_dispatcher_connect(hass, "update_sensors", async_update_controller)
     config_entry.async_on_unload(unsub)
@@ -154,7 +156,7 @@ class MikrotikHostDeviceTracker(MikrotikDeviceTracker):
         if not self.option_track_network_hosts:
             return False
 
-        if self._data["source"] in ["capsman", "wireless"]:
+        if self._data.get("is_wireless", False):
             return self._data[self.entity_description.data_attribute]
 
         return bool(
@@ -166,7 +168,7 @@ class MikrotikHostDeviceTracker(MikrotikDeviceTracker):
     @property
     def icon(self) -> str:
         """Return the icon."""
-        if self._data["source"] in ["capsman", "wireless"]:
+        if self._data.get("is_wireless", False):
             if self._data[self.entity_description.data_attribute]:
                 return self.entity_description.icon_enabled
             else:
@@ -195,8 +197,8 @@ class MikrotikHostDeviceTracker(MikrotikDeviceTracker):
         if not attributes[format_attribute("last-seen")]:
             attributes[format_attribute("last-seen")] = "Unknown"
 
-        # Wireless metrics only for wireless/capsman hosts
-        if self._data.get("source") in ("capsman", "wireless"):
+        # Wireless metrics only for wireless hosts
+        if self._data.get("is_wireless", False):
             copy_attrs(attributes, self._data, DEVICE_ATTRIBUTES_HOST_WIRELESS)
 
         return attributes

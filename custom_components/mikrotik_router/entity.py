@@ -197,18 +197,21 @@ def _skip_poe_sensor(config_entry, entity_description, data, uid) -> bool:
 # ---------------------------
 async def _check_entity_exists(hass, platform, obj, uid) -> None:  # pragma: no cover
     """Add obj to HA if it is not yet registered or has been removed."""
-    entity_registry = er.async_get(hass)
+    entity_reg = er.async_get(hass)
     if uid:
         unique_id = f"{obj._inst.lower()}-{obj.entity_description.key}-{slugify(str(obj._data[obj.entity_description.data_reference]).lower())}"
     else:
         unique_id = f"{obj._inst.lower()}-{obj.entity_description.key}"
 
-    entity_id = entity_registry.async_get_entity_id(platform.domain, DOMAIN, unique_id)
-    entity = entity_registry.async_get(entity_id)
-    if entity is None or (
-        (entity_id not in platform.entities) and (entity.disabled is False)
-    ):
-        _LOGGER.debug("Add entity %s", entity_id)
+    entity_id = entity_reg.async_get_entity_id(platform.domain, DOMAIN, unique_id)
+
+    # Already loaded in this platform instance — skip to avoid duplicate registration
+    if entity_id and entity_id in platform.entities:
+        return
+
+    entity = entity_reg.async_get(entity_id)
+    if entity is None or entity.disabled is False:
+        _LOGGER.debug("Add entity %s (unique_id=%s)", entity_id, unique_id)
         await platform.async_add_entities([obj])
 
 

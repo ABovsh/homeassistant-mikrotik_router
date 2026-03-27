@@ -31,7 +31,7 @@ def _make_tracker(
     return entity
 
 
-def _host_data(source="arp", last_seen=None, available=True, **extra):
+def _host_data(source="arp", last_seen=None, available=True, is_wireless=None, **extra):
     """Build a host data dict."""
     data = {
         "host-name": "MyPC",
@@ -40,6 +40,9 @@ def _host_data(source="arp", last_seen=None, available=True, **extra):
         "source": source,
         "available": available,
         "last-seen": last_seen,
+        "is_wireless": is_wireless
+        if is_wireless is not None
+        else source in ("capsman", "wireless"),
     }
     data.update(extra)
     return data
@@ -298,3 +301,34 @@ class TestMikrotikHostDeviceTracker:
         assert "tx_ccq" not in attrs
         assert "tx_rate" not in attrs
         assert "rx_rate" not in attrs
+
+    def test_bridge_wireless_host_uses_wireless_behaviour(self):
+        """Host discovered via bridge table with is_wireless=True uses wireless logic."""
+        coord = make_mock_coordinator(options={CONF_TRACK_HOSTS: True})
+        coord.data["host"] = {
+            "mac1": _host_data(
+                source="arp",
+                available=True,
+                is_wireless=True,
+                **{
+                    "signal-strength": -60,
+                    "tx-ccq": 85,
+                    "tx-rate": "72Mbps",
+                    "rx-rate": "54Mbps",
+                },
+            )
+        }
+        entity = _make_tracker(
+            cls=MikrotikHostDeviceTracker,
+            coordinator=coord,
+            desc_overrides={**_HOST_DESC},
+            uid="mac1",
+        )
+        # Uses registration-based connection (available=True directly)
+        assert entity.is_connected is True
+        # Shows wireless icon
+        assert entity.icon == entity.entity_description.icon_enabled
+        # Shows wireless attributes
+        attrs = entity.extra_state_attributes
+        assert attrs["signal_strength"] == -60
+        assert attrs["tx_ccq"] == 85
