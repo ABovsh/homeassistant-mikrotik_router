@@ -2,13 +2,28 @@
 
 ## Current Priorities
 
-No open issues — all tracked issues resolved for v2.4.0.
+1. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
 
 ---
 
 ## Active
 
-(none)
+### ISS-260320-new-device-discovery — New devices require HA restart to appear
+**Type:** Feature
+**Priority:** Medium
+**Created:** 2026-03-20
+**Status:** 🟡 In Progress — UID tracking infrastructure done, dispatcher disabled pending entity guard fix
+
+**Done:**
+- ✅ `_check_new_uids()` tracks UIDs per entity-relevant data path (`_ENTITY_UID_PATHS`)
+- ✅ `_check_entity_exists()` guard improved (early return if entity_id in platform.entities)
+- ✅ device_tracker callback ignores dispatches from main coordinator
+- ✅ First-run skip prevents redundant entity setup during startup
+
+**Remaining:**
+- Harden entity guard: `async_add_entities` still causes "does not generate unique IDs" when called for existing entities even with the guard. Investigate HA's `EntityPlatform.entities` dict timing.
+- Re-enable dispatcher once guard is validated in live environment
+- Test: add new host mid-run, verify entity created without log errors
 
 ---
 
@@ -39,7 +54,7 @@ On routers with empty registration tables (hAP ac2 with new WiFi package), wirel
 
 ### ISS-260320-new-device-discovery — New devices require HA restart to appear
 **Type:** Feature | **Priority:** High | **Created:** 2026-03-20
-**Status:** 🔴 Closed — fixed in feature/v240-issues (UID tracking + dispatcher guard + entity guard)
+**Status:** 🟡 Partially done — UID tracking in place, dispatcher disabled pending entity guard hardening
 
 ### ISS-260320-refactor-dedup — Refactor duplicated patterns
 **Type:** Refactoring | **Priority:** Medium | **Created:** 2026-03-20
