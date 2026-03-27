@@ -4563,62 +4563,66 @@ async def test_bridged_ap_wireless_count():
 
 
 # ---------------------------------------------------------------------------
-# _has_new_uids — new device discovery dispatcher guard
+# _check_new_uids — new device discovery dispatcher guard
 # ---------------------------------------------------------------------------
 
 
-def test_has_new_uids_first_run_returns_true():
-    """First run always returns True since _known_uids is empty."""
+def test_check_new_uids_first_run_seeds_but_skips():
+    """First run seeds tracking but returns empty (no dispatcher on initial load)."""
     coordinator = make_coordinator()
     coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
-    assert coordinator._has_new_uids() is True
+    assert coordinator._check_new_uids() == []
+    # Tracking is now seeded
+    assert "interface" in coordinator._known_uids
 
 
-def test_has_new_uids_no_change_returns_false():
-    """No new UIDs returns False."""
+def test_check_new_uids_no_change_returns_empty():
+    """No new UIDs returns empty list."""
     coordinator = make_coordinator()
     coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
-    coordinator._has_new_uids()  # populate tracking
-    assert coordinator._has_new_uids() is False
+    coordinator._check_new_uids()  # seed
+    assert coordinator._check_new_uids() == []
 
 
-def test_has_new_uids_new_uid_returns_true():
-    """Adding a new UID triggers True."""
+def test_check_new_uids_new_uid_returns_path():
+    """Adding a new UID returns the changed data path."""
     coordinator = make_coordinator()
     coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
-    coordinator._has_new_uids()  # populate tracking
+    coordinator._check_new_uids()  # seed
 
     coordinator.ds["interface"]["ether2"] = {"name": "ether2"}
-    assert coordinator._has_new_uids() is True
+    result = coordinator._check_new_uids()
+    assert "interface" in result
 
 
-def test_has_new_uids_removed_uid_returns_false():
+def test_check_new_uids_removed_uid_returns_empty():
     """Removing a UID does not trigger (only new UIDs matter)."""
     coordinator = make_coordinator()
     coordinator.ds["interface"] = {"ether1": {}, "ether2": {}}
-    coordinator._has_new_uids()
+    coordinator._check_new_uids()  # seed
 
     del coordinator.ds["interface"]["ether2"]
-    assert coordinator._has_new_uids() is False
+    assert coordinator._check_new_uids() == []
 
 
-def test_has_new_uids_skips_non_dict_paths():
+def test_check_new_uids_skips_non_dict_paths():
     """Non-dict ds paths (like access list) are skipped."""
     coordinator = make_coordinator()
     coordinator.ds["access"] = ["write", "policy"]  # list, not dict
     coordinator.ds["interface"] = {"ether1": {}}
-    coordinator._has_new_uids()
-    assert coordinator._has_new_uids() is False
+    coordinator._check_new_uids()  # seed
+    assert coordinator._check_new_uids() == []
 
 
-def test_has_new_uids_new_host_triggers():
+def test_check_new_uids_new_host_triggers():
     """New host appearing in ds triggers dispatcher."""
     coordinator = make_coordinator()
     coordinator.ds["host"] = {"mac1": {"host-name": "phone"}}
-    coordinator._has_new_uids()
+    coordinator._check_new_uids()  # seed
 
     coordinator.ds["host"]["mac2"] = {"host-name": "laptop"}
-    assert coordinator._has_new_uids() is True
+    result = coordinator._check_new_uids()
+    assert "host" in result
 
 
 @pytest.mark.asyncio

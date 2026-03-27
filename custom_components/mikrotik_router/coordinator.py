@@ -723,22 +723,31 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if not self.api.connected():
             raise UpdateFailed("Mikrotik Disconnected")
 
-        if self._has_new_uids():
+        new_uids = self._check_new_uids()
+        if new_uids:
+            _LOGGER.debug(
+                "New UIDs detected in %s, dispatching update_sensors", new_uids
+            )
             async_dispatcher_send(self.hass, "update_sensors", self)
         return self.ds
 
-    def _has_new_uids(self) -> bool:
-        """Check if any data path has new UIDs since last check, update tracking."""
-        has_new = False
+    def _check_new_uids(self) -> list[str]:
+        """Return list of data paths with new UIDs since last check, updating tracking.
+
+        On the first call (empty _known_uids), seeds the tracking but returns empty
+        list to avoid redundant entity setup during initial load.
+        """
+        first_run = not self._known_uids
+        changed_paths: list[str] = []
         for path, data in self.ds.items():
             if not isinstance(data, dict):
                 continue
             current = set(data.keys())
             previous = self._known_uids.get(path, set())
-            if current - previous:
-                has_new = True
+            if not first_run and current - previous:
+                changed_paths.append(path)
             self._known_uids[path] = current
-        return has_new
+        return changed_paths
 
     async def _async_update_client_traffic(self) -> None:
         """Run accounting or kid-control traffic collection if enabled."""
