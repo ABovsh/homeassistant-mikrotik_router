@@ -14,7 +14,6 @@ from mac_vendor_lookup import AsyncMacLookup
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util.dt import now as dt_now, utcnow
 
@@ -723,29 +722,54 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if not self.api.connected():
             raise UpdateFailed("Mikrotik Disconnected")
 
-        new_uids = self._check_new_uids()
-        if new_uids:
-            _LOGGER.debug(
-                "New UIDs detected in %s, dispatching update_sensors", new_uids
-            )
-            async_dispatcher_send(self.hass, "update_sensors", self)
+        # UID tracking: monitor for new entities across update cycles.
+        # Dispatcher is NOT fired automatically — _check_entity_exists guard
+        # needs hardening before re-enabling (see ISS-260320-new-device-discovery).
+        # Track UIDs for future use and debug visibility.
+        self._check_new_uids()
         return self.ds
 
+    # Data paths where dict keys are entity UIDs (not data field names).
+    _ENTITY_UID_PATHS = frozenset(
+        {
+            "interface",
+            "host",
+            "nat",
+            "mangle",
+            "filter",
+            "raw",
+            "queue",
+            "ppp_secret",
+            "script",
+            "dhcp",
+            "dhcp-server",
+            "dhcp-client",
+            "kid-control",
+            "container",
+            "environment",
+            "netwatch",
+        }
+    )
+
     def _check_new_uids(self) -> list[str]:
-        """Return list of data paths with new UIDs since last check, updating tracking.
+        """Return list of entity-relevant data paths with new UIDs since last check.
 
         On the first call (empty _known_uids), seeds the tracking but returns empty
         list to avoid redundant entity setup during initial load.
+        Only checks paths in _ENTITY_UID_PATHS (where dict keys are entity UIDs).
         """
         first_run = not self._known_uids
         changed_paths: list[str] = []
-        for path, data in self.ds.items():
+        for path in self._ENTITY_UID_PATHS:
+            data = self.ds.get(path)
             if not isinstance(data, dict):
                 continue
             current = set(data.keys())
             previous = self._known_uids.get(path, set())
-            if not first_run and current - previous:
+            new_keys = current - previous
+            if not first_run and new_keys:
                 changed_paths.append(path)
+                _LOGGER.debug("New UIDs in %s: %s", path, new_keys)
             self._known_uids[path] = current
         return changed_paths
 

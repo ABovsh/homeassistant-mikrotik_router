@@ -48,18 +48,20 @@ async def async_add_entities(
     for service in services:
         platform.async_register_entity_service(service[0], service[1], service[2])
 
+    tracker_coord = hass.data[DOMAIN][config_entry.entry_id].tracker_coordinator
+
     @callback
     async def async_update_controller(coordinator):
         """Update the values of the controller."""
+        if coordinator is not tracker_coord:
+            return
         if coordinator.data is None:
             return
         await _run_entity_setup_loop(
             hass, platform, config_entry, dispatcher, descriptions, coordinator
         )
 
-    await async_update_controller(
-        hass.data[DOMAIN][config_entry.entry_id].tracker_coordinator
-    )
+    await async_update_controller(tracker_coord)
 
     unsub = async_dispatcher_connect(hass, "update_sensors", async_update_controller)
     config_entry.async_on_unload(unsub)
