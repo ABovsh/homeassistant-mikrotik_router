@@ -41,9 +41,9 @@ The race has existed since the current `set_value`/`execute` shape was introduce
 HA 2026.5.0 (released 2026-05-06) is the first version where a user (#64) has reported the integration breaking. HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime alone isn't a sufficient explanation — the race in `set_value`/`execute` was present in 2026.3 and 2026.4 too without prior reports. The integration's CI matrix and local dev environment still target Python 3.13.
 
 **Plan:**
-- Add Python 3.14 to the CI matrix for the test job
-- Validate the integration manually against HA 2026.5.0 (PoE switching, device tracker, sensors, services)
-- Diff HA 2026.4 → 2026.5 release notes / commits for service-dispatch or executor-pool changes that could explain why #64 surfaced now
+- ✅ Add Python 3.14 to the CI matrix for the test job (done in `chore/sync-v2316-to-dev`)
+- 🟡 Validate the integration manually against HA 2026.5.0 (PoE switching, device tracker, sensors, services) — **awaiting hardware/HA instance access**
+- 🟡 Diff HA 2026.4 → 2026.5 release notes / commits for service-dispatch or executor-pool changes — **2026.5 release notes searched: no executor or service-dispatch changes called out (notable items were `serialx` migration, entity-ID domain matching, doorbell event standardization, infrared platform); will need to grep HA repo commits between 2026.4 and 2026.5 tags for `executor`, `async_add_executor_job`, `service_call`, `WebSocket` if #64 reproduces on v2.3.16**
 - Document any 2026.5.0-specific behaviour in README compatibility notes
 
 ---
