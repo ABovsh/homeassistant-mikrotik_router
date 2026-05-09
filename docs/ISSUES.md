@@ -3,11 +3,14 @@
 ## Current Priorities
 
 1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; rapid switch toggles can corrupt the socket stream and disconnect the integration (#64)
-2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 / Python 3.14 not yet validated against the integration; testing planned
-3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; all users affected (hotfix v2.3.14 pins `<4.0`)
-4. ISS-260320-new-device-discovery — New devices require HA restart to appear
-5. ISS-260320-refactor-dedup — Refactor duplicated patterns
-6. ISS-260326-tracker-wireless-detection — Device tracker uses old wireless detection logic
+2. ISS-260509-librouteros-4x-migration — Solve the v2.3.14 workaround: migrate to librouteros 4.x and drop the `<4.0` pin (ADR-010, target v2.4.0)
+3. ISS-260509-ha-2026.5-untested — HA 2026.5.0 / Python 3.14 not yet validated against the integration; testing planned
+4. ISS-260509-upstream-demand-quickwins — Additive sensor wins driven by upstream demand (RX/queue drops, wireless signal/rate, container binary_sensor, UPS runtime_left timedelta)
+5. ISS-260509-coordinator-access-keyerror — `coordinator.get_access` raises `KeyError` when configured user is missing from `/user` print (upstream #487)
+6. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; all users affected (hotfix v2.3.14 pins `<4.0`)
+7. ISS-260320-new-device-discovery — New devices require HA restart to appear
+8. ISS-260320-refactor-dedup — Refactor duplicated patterns
+9. ISS-260326-tracker-wireless-detection — Device tracker uses old wireless detection logic
 
 ---
 
@@ -30,6 +33,66 @@ Move `_find_entry` and the subsequent `response.update()` / `response(command, *
 
 **Why this just surfaced:**
 The race has existed since the current `set_value`/`execute` shape was introduced. HA moved to Python 3.14 in [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime change alone doesn't explain the timing — there were no reports of this race during the 2026.3 / 2026.4 windows. The first report (#64) is against 2026.5.0; whether 2026.5.0 changed something specific (service dispatch timing, executor pool sizing, or similar) is still being investigated. Either way the lock fix is correct and the race must be closed regardless of cause. Reporter confirmation requested in the GH thread (rollback test against v2.3.14).
+
+---
+
+### ISS-260509-librouteros-4x-migration — Solve the v2.3.14 workaround
+**Type:** Migration
+**Priority:** High
+**Created:** 2026-05-09
+**Status:** 🟡 Planned — ADR-010, target `v2.4.0`
+
+**Context:**
+v2.3.14 shipped a stopgap that pinned `librouteros>=3.4.1,<4.0` after librouteros 4.0.1 broke the connect path (#55, #56). The integration still calls the librouteros 3.x API (`mikrotikapi.py:102` passes the old kwarg `login_methods=`; `const.py:21` defines `DEFAULT_LOGIN_METHOD = "plain"` as a string, not the callable librouteros 4.x requires). The pin works but is fragile and locks us out of librouteros 4.x bug fixes. Upstream `tomaae` is suffering the same break (issues #477, #481, #487, #488; six independent unmerged PRs).
+
+**Plan:** Per [ADR-010](decisions/ADR-010-librouteros-4x-migration.md):
+- `mikrotikapi.py`: import `from librouteros.login import plain, token`. Map the configured string (`"plain"` / `"token"`) to the callable inside `__init__` and store as `self._login_method_fn`. Pass `login_method=self._login_method_fn` (singular kwarg) in `connect()`.
+- `const.py`: leave `DEFAULT_LOGIN_METHOD = "plain"` unchanged — the string is the user-visible config value.
+- `manifest.json`: change requirement to `librouteros>=4.0,<5`.
+- Audit other 4.0 breaking changes (Path call signatures used by `set_value`/`execute`/`run_script`, `query()` return shape, exception class names). Add regression tests for any surface that changed.
+- Live-validate against the v2.3.14 hardware matrix (hAP ac2, hAP ax3, RB4011, CRS310) before merging.
+- Cut `v2.4.0` (minor bump — dependency floor moves).
+
+**Out of scope:** the unrelated `KeyError` in `coordinator.get_access` (tracked separately as ISS-260509-coordinator-access-keyerror).
+
+---
+
+### ISS-260509-upstream-demand-quickwins — Additive sensors driven by upstream demand
+**Type:** Feature
+**Priority:** Medium
+**Created:** 2026-05-09
+**Status:** 🟡 Backlog — sequenced after ISS-260509-librouteros-4x-migration
+
+**Context:**
+[Upstream engagement cross-reference](UPSTREAM-ENGAGEMENT-2026-05.md) identified upstream feature requests whose underlying data is **already fetched** by our coordinator, so they're additive entity definitions in `*_types.py` with no coordinator changes. Mapping:
+
+| Upstream # | Maps to | Source data |
+|-----------|---------|-------------|
+| #432 (RX FCS / port stats) | sensor-gap-analysis A1 (firewall counters), A2 (queue drops), A3 (link-downs) | already in `interface`, `nat`/`mangle`/`filter`/`raw` |
+| #413, #233 (per-wireless registration entity, per-SSID client count) | sensor-gap-analysis A9, A10, A12 | already in `wireless_hosts`, `bridge_host` |
+| #245 (UPS `runtime_left` as timedelta) | trivial conversion | already in `ups` |
+| (FEATURE-POLL A11) | container running binary_sensor | already in `container` (switch exists; binary_sensor doesn't) |
+
+**Plan:**
+- Phase 1 (one PR): A1 + A2 + A3 + UPS timedelta. Pure `*_types.py` additions plus optional helper for the timedelta string format. ~7 new sensor descriptions, no coordinator touch, no breaking changes.
+- Phase 2 (separate PR): A9 + A10 + container binary_sensor. Per-host attributes, requires care around entity churn; do after Phase 1 soaks.
+
+**Why not first:** quality-gate constraint — these ride on top of the librouteros migration, so they should land after `v2.4.0` to keep the migration's blast radius small and reviewable.
+
+---
+
+### ISS-260509-coordinator-access-keyerror — `get_access` raises `KeyError` on missing user
+**Type:** Bug
+**Priority:** Medium
+**Created:** 2026-05-09
+**Status:** 🟡 Backlog
+
+**Context:**
+`coordinator.py:710` does `tmp_user[self.config_entry.data[CONF_USERNAME]]["group"]` with no guard for the configured username being absent from the `/user` print result. Upstream #487 reports this surfacing as `KeyError: 'Hass'` on RouterOS 7.22.2 / HA 2026.4.4 with the cAP. Independent of the librouteros migration — a configured user can legitimately disappear (renamed, removed, or filtered by group permissions).
+
+**Plan:**
+- Add a defensive lookup: `if username not in tmp_user: log warning, mark access as none, return`.
+- Test fixture: `/user` print returning users that don't include the configured one.
 
 ---
 
