@@ -1,15 +1,26 @@
 """Tests for Mikrotik Router sensor entities."""
 
+from homeassistant.const import UnitOfElectricCurrent
+
 from custom_components.mikrotik_router.sensor import (
     MikrotikSensor,
     MikrotikClientTrafficSensor,
 )
+from custom_components.mikrotik_router.sensor_types import SENSOR_TYPES
 
 from .conftest import (
     make_mock_coordinator,
     make_mock_entity_description,
     patch_coordinator_entity_init,
 )
+
+
+def test_poe_out_current_uses_milliampere_native_unit():
+    """Issue #60: PoE current was declared as AMPERE but the API returns mA,
+    causing displayed values to be off by 1000x. The native unit must match
+    the raw API units (mA)."""
+    desc = next(s for s in SENSOR_TYPES if s.key == "poe_out_current")
+    assert desc.native_unit_of_measurement == UnitOfElectricCurrent.MILLIAMPERE
 
 
 def _make_sensor(cls=MikrotikSensor, coordinator=None, desc_overrides=None, uid=None):

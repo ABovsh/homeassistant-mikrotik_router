@@ -1,0 +1,22 @@
+# Gitleaks configuration — extends the default ruleset with project-specific
+# allowlists.
+
+[extend]
+useDefault = true
+
+# Documentation files contain change-tracking IDs (CR-YYMMDD-*, ISS-YYMMDD-*,
+# etc.) that can land two-per-line in markdown tables. The combination trips
+# gitleaks' generic-api-key entropy check as a false positive. No real secrets
+# ever live in docs/ — credentials go through HA's config_entry, never source.
+[allowlist]
+description = "Project tracking IDs and documentation are not secrets"
+paths = [
+  '''docs/.*\.md''',
+  '''README\.md''',
+  '''info\.md''',
+  '''CLAUDE\.md''',
+]
+regexes = [
+  '''(CR|ISS|PIR|ENH)-\d{6}-[a-z0-9._-]+''',
+]
+regexTarget = "line"

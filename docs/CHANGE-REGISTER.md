@@ -4,6 +4,78 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260509-fix-api-concurrency-lock — v2.3.16: hold API lock around set_value/execute response iteration
+
+**Date:** 2026-05-09
+**Branch:** `fix/api-concurrency-lock`
+**Status:** In Review (targeting master)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `mikrotikapi.py` | `set_value()` and `execute()` now wrap `_find_entry()` and the subsequent `response.update()` / `response(command, **params)` call inside the existing `with self.lock:` block. Previously the iteration ran outside the lock and could interleave with concurrent coordinator polls reading from the same TCP socket. |
+| `manifest.json` | Bump version 2.3.15 → 2.3.16 |
+| `tests/test_mikrotikapi.py` | 2 new regression tests verifying `_find_entry` runs while the API lock is held in both `set_value` and `execute` |
+| `README.md`, `info.md` | v2.3.16 release notes; note HA 2026.5.0 / Python 3.14 not yet validated |
+| `docs/ISSUES.md` | Open ISS-260509-mikrotikapi-concurrency (the bug fix) |
+| `docs/ISSUES.md` | Open ISS-260509-ha-2026.5-untested (compatibility tracking) |
+
+### Why
+
+Reported in #64: rapidly toggling PoE switches on a `RB5009UPr+S+IN` running HA 2026.5.0 caused librouteros' `parse_word` to raise `ValueError: not enough values to unpack` mid-iteration, followed by `Mikrotik Disconnected`. Root cause is a pre-existing race in `set_value`/`execute`: both methods iterated the librouteros `Path` object — which performs further socket reads — outside the API lock. A concurrent coordinator poll could then read from the same socket and the parser saw a half-finished sentence. `run_script()` already followed the correct pattern.
+
+### Why this surfaced now
+
+The race has existed for many releases but was rarely triggered on Python 3.13. HA 2026.5.0 shipped with Python 3.14, which retuned thread scheduling and GIL release granularity. Races that were rare on 3.13 are now easy to hit on 3.14 — particularly under workloads that issue rapid switch toggles.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint | pending | ⏳ (CI) |
+| Ruff format | pending | ⏳ (CI) |
+| Tests | 2 new regression tests, full suite via CI | ⏳ (CI) |
+
+---
+
+## CR-260507-hotfix-ups-poe-current — v2.3.15 hotfix: empty UPS path + PoE current unit
+
+**Date:** 2026-05-07
+**Branch:** `fix/v2.3.15-ups-poe-current`
+**Status:** In Review (targeting master)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | `get_ups()` short-circuits when `/system/ups` returns no entries — clears `ds["ups"]` and skips the `monitor` query that would otherwise fail with "no such item" and disconnect the integration |
+| `sensor_types.py` | `poe_out_current` native unit changed from `AMPERE` to `MILLIAMPERE` (matches the raw API value); `suggested_unit_of_measurement` removed |
+| `manifest.json` | Bump version 2.3.14 → 2.3.15 |
+| `tests/test_coordinator.py` | 2 new tests: `get_ups` no-config skip path, `get_ups` runs monitor when UPS present |
+| `tests/test_sensor.py` | 1 new test: `poe_out_current` description uses `MILLIAMPERE` |
+| `README.md`, `info.md` | v2.3.15 release notes |
+| `docs/ISSUES.md` | Open ISS-260507-ups-empty-path, ISS-260507-poe-current-unit (both closed in this PR) |
+
+### Why
+
+Two bugs reported against v2.3.14:
+
+- **#61 (ISS-260507-ups-empty-path):** `get_ups()` always issued the `/system/ups monitor` query because the `enabled` field defaulted to `True` when no UPS entries existed (the `reverse=True` flag inverted the missing-source default). RouterOS rejected the monitor with "no such item", and `_query_command` treated that as a connection failure → "Mikrotik Disconnected" for the whole integration. The router worked fine; it just didn't have a UPS.
+- **#60 (ISS-260507-poe-current-unit):** `native_unit_of_measurement` was set to `AMPERE` while the API returns the value already in mA. HA's unit-conversion path then displayed the raw mA value as if it were amps converted to mA, giving values 1000× too large (e.g. `1234.56 mA` for a 25 mA load on a `RB5009UPr+S+IN`).
+
+Both are minimal, low-risk fixes that don't touch shared paths. Bundled into a single hotfix to ship them together.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint | 0 errors | ✅ (CI-verified) |
+| Ruff format | 0 reformats needed | ✅ (CI-verified) |
+| Tests | 3 new, full suite green via CI | ✅ |
+
+---
+
 ## CR-260417-hotfix-librouteros-4x-pin — v2.3.14 hotfix: pin librouteros<4.0
 
 **Date:** 2026-04-17

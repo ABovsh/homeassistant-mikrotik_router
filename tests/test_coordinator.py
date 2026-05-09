@@ -3215,6 +3215,68 @@ def test_capabilities_ups_and_gps():
 
 
 # ---------------------------------------------------------------------------
+# Group AG2: get_ups() — UPS path handling
+# ---------------------------------------------------------------------------
+
+
+def test_get_ups_no_configured_ups_does_not_query_monitor():
+    """When /system/ups returns no entries, skip the monitor query.
+
+    Reproduces issue #61: routers with the UPS package enabled but no UPS
+    configured returned an empty list from /system/ups. The reverse-default
+    on `enabled` then evaluated truthy, causing get_ups to issue a
+    /system/ups monitor query that RouterOS rejects with "no such item",
+    triggering a full coordinator disconnect ("Mikrotik Disconnected").
+    """
+    coordinator = make_coordinator(api_responses={"/system/ups": []})
+    monitor_calls = []
+    real_query = coordinator.api.query
+
+    def tracking_query(path, command=None, args=None):
+        if command == "monitor":
+            monitor_calls.append((path, args))
+        return real_query(path, command, args)
+
+    coordinator.api.query = tracking_query
+    coordinator.get_ups()
+
+    assert monitor_calls == []
+    assert coordinator.ds["ups"] == {}
+
+
+def test_get_ups_configured_ups_runs_monitor_query():
+    """When a UPS is present, monitor data is fetched and merged."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/ups": [
+                {
+                    ".id": "*0",
+                    "name": "ups1",
+                    "model": "Back-UPS",
+                    "disabled": False,
+                }
+            ],
+            ("/system/ups", "monitor"): [
+                {
+                    "on-line": True,
+                    "battery-charge": 95,
+                    "battery-voltage": 13.4,
+                    "line-voltage": 230,
+                    "load": 25,
+                    "runtime-left": "1h30m",
+                    "hid-self-test": "ok",
+                }
+            ],
+        }
+    )
+    coordinator.get_ups()
+
+    assert coordinator.ds["ups"]["enabled"] is True
+    assert coordinator.ds["ups"]["battery-charge"] == 95
+    assert coordinator.ds["ups"]["on-line"] is True
+
+
+# ---------------------------------------------------------------------------
 # Group AH: process_interface_client() — interface client mapping
 # ---------------------------------------------------------------------------
 

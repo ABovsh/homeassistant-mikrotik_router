@@ -236,20 +236,18 @@ class MikrotikAPI:
         if response is None:
             return False
 
-        entry_found = self._find_entry(response, param, value)
-        if not entry_found:
-            _LOGGER.error(
-                "Mikrotik %s set_value parameter %s with value %s not found",
-                self._host,
-                param,
-                value,
-            )
-            return False
-
-        params = {".id": entry_found, mod_param: mod_value}
         with self.lock:
             try:
-                response.update(**params)
+                entry_found = self._find_entry(response, param, value)
+                if not entry_found:
+                    _LOGGER.error(
+                        "Mikrotik %s set_value parameter %s with value %s not found",
+                        self._host,
+                        param,
+                        value,
+                    )
+                    return False
+                response.update(**{".id": entry_found, mod_param: mod_value})
             except Exception as e:
                 self.disconnect("set_value", e)
                 return False
@@ -272,25 +270,25 @@ class MikrotikAPI:
         if response is None:
             return False
 
-        params: dict = {}
-        if param:
-            entry_found = self._find_entry(response, param, value)
-            if not entry_found:
-                _LOGGER.error(
-                    "Mikrotik %s Execute %s parameter %s with value %s not found",
-                    self._host,
-                    command,
-                    param,
-                    value,
-                )
-                return False
-            params[".id"] = entry_found
-
-        if attributes:
-            params.update(attributes)
-
         with self.lock:
             try:
+                params: dict = {}
+                if param:
+                    entry_found = self._find_entry(response, param, value)
+                    if not entry_found:
+                        _LOGGER.error(
+                            "Mikrotik %s Execute %s parameter %s with value %s not found",
+                            self._host,
+                            command,
+                            param,
+                            value,
+                        )
+                        return False
+                    params[".id"] = entry_found
+
+                if attributes:
+                    params.update(attributes)
+
                 tuple(response(command, **params))
             except Exception as e:
                 self.disconnect("execute", e)
