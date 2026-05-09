@@ -2,12 +2,90 @@
 
 ## Current Priorities
 
-1. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
-2. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
+1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
+2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
+3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
+4. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
 
 ---
 
 ## Active
+
+### ISS-260509-mikrotikapi-concurrency — set_value/execute corrupt socket under rapid use
+**Type:** Bug
+**Priority:** High
+**Created:** 2026-05-09
+**Status:** 🟡 In Progress — fix in `fix/api-concurrency-lock` (v2.3.16)
+
+**Symptom:**
+Rapidly toggling PoE switches in the HA UI causes the integration to disconnect. Traceback shows librouteros' `parse_word` raising `ValueError: not enough values to unpack (expected 3, got 2)` while iterating the response inside `_find_entry`. Subsequent polls then time out with `building list for path /ip/arp : timed out` and the coordinator marks itself disconnected. Reported in #64 (RB5009UPr+S+IN, RouterOS 7.22.2, HA 2026.5.0 / Python 3.14).
+
+**Root cause:**
+`MikrotikAPI.set_value()` and `MikrotikAPI.execute()` call `query(path, return_list=False)` which returns the librouteros `Path` object **outside** the API lock. They then call `_find_entry(response, ...)` — which iterates the Path and performs additional socket reads — also **outside** the lock. The 30s coordinator poll (`get_arp`, `get_health`, etc.) acquires the lock and reads from the same TCP socket concurrently. The librouteros parser sees a half-finished sentence from the interleaved reads and raises. `run_script()` already does this correctly (iterates inside the lock), so it was the model for the fix.
+
+**Fix:**
+Move `_find_entry` and the subsequent `response.update()` / `response(command, **params)` calls inside the existing `with self.lock:` block in `set_value` and `execute`. No public API changes.
+
+**Why this just surfaced:**
+The race has existed since the current `set_value`/`execute` shape was introduced. HA moved to Python 3.14 in [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime change alone doesn't explain the timing — there were no reports of this race during the 2026.3 / 2026.4 windows. The first report (#64) is against 2026.5.0; whether 2026.5.0 changed something specific (service dispatch timing, executor pool sizing, or similar) is still being investigated. Either way the lock fix is correct and the race must be closed regardless of cause. Reporter confirmation requested in the GH thread (rollback test against v2.3.14).
+
+---
+
+### ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated
+**Type:** Compatibility
+**Priority:** Medium
+**Created:** 2026-05-09
+**Status:** 🟡 Backlog
+
+**Context:**
+HA 2026.5.0 (released 2026-05-06) is the first version where a user (#64) has reported the integration breaking. HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime alone isn't a sufficient explanation — the race in `set_value`/`execute` was present in 2026.3 and 2026.4 too without prior reports. The integration's CI matrix and local dev environment still target Python 3.13.
+
+**Plan:**
+- Add Python 3.14 to the CI matrix for the test job
+- Validate the integration manually against HA 2026.5.0 (PoE switching, device tracker, sensors, services)
+- Diff HA 2026.4 → 2026.5 release notes / commits for service-dispatch or executor-pool changes that could explain why #64 surfaced now
+- Document any 2026.5.0-specific behaviour in README compatibility notes
+
+---
+
+### ISS-260507-ups-empty-path — Empty `/system/ups` path disconnects the integration
+**Type:** Bug
+**Priority:** High
+**Created:** 2026-05-07
+**Status:** 🔴 Closed — fixed in v2.3.15 (PR for `fix/v2.3.15-ups-poe-current`)
+
+**Symptom:**
+On routers with the UPS package enabled but no UPS configured, the integration tile shows "Failed setup, will retry: Mikrotik Disconnected" and never loads. Logs:
+```
+ERROR ... Mikrotik <host> error while path : no such item
+DEBUG ... Finished fetching ... data in 3.380 seconds (success: False)
+```
+Reported in #61 (RouterOS 7.22.1 on CCR2116-12G-4S+).
+
+**Root cause:**
+`coordinator.get_ups()` always issued the `/system/ups monitor` query because the parsed `enabled` field defaulted to `True` when `/system/ups` was empty. The `vals` entry for `enabled` uses `source="disabled"` with `reverse=True`; `from_entry_bool` returns `not default` when the source key is missing, so `enabled` becomes `True` for an empty path. RouterOS then rejects `monitor` with "no such item", and `_query_command` treats it as a connection failure.
+
+**Fix:**
+Bail out of `get_ups()` early when `/system/ups` returns no entries — clear `ds["ups"]` and skip both `parse_api` and the `monitor` query.
+
+---
+
+### ISS-260507-poe-current-unit — PoE out current displayed 1000× too large
+**Type:** Bug
+**Priority:** Medium
+**Created:** 2026-05-07
+**Status:** 🔴 Closed — fixed in v2.3.15 (PR for `fix/v2.3.15-ups-poe-current`)
+
+**Symptom:**
+PoE out current sensor displays `~1234.56 mA` for a port drawing ~25 mA (DE locale shows `1.234,56 mA`). Reported in #60 (RB5009UPr+S+IN, RouterOS 7.22.2).
+
+**Root cause:**
+`sensor_types.py` declared `poe_out_current` with `native_unit_of_measurement=AMPERE` and `suggested_unit_of_measurement=MILLIAMPERE`. RouterOS reports the value already in milliamperes (test fixtures use raw integers like `180`, `310`), so HA's unit conversion turned `180 A → 180000 mA`.
+
+**Fix:**
+Set `native_unit_of_measurement=MILLIAMPERE`; remove `suggested_unit_of_measurement`.
+
+---
 
 ### ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks connection for all users
 **Type:** Bug

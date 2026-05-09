@@ -21,7 +21,19 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
-## What's New — v2.3.14
+## What's New — v2.3.16
+
+**Concurrency fix for rapid switch toggles** — `set_value()` and `execute()` in `mikrotikapi.py` were iterating the librouteros response object (which performs additional socket reads) **outside** the API lock. Under workloads that toggle switches rapidly, this could race with the 30s coordinator poll and corrupt the librouteros sentence stream, triggering `ValueError: not enough values to unpack` followed by a full coordinator disconnect. Both methods now hold the lock for the entire response lifecycle, matching the pattern `run_script()` was already using. Addresses [#64](https://github.com/jnctech/homeassistant-mikrotik_router/issues/64).
+
+> **HA 2026.5.0 compatibility:** This release was prompted by a report against HA 2026.5.0 ([#64](https://github.com/jnctech/homeassistant-mikrotik_router/issues/64)). The integration has not yet been formally validated against 2026.5.0 — testing is planned. The underlying race fixed in this release was pre-existing and unrelated to v2.3.15; what changed in 2026.5.0 specifically that surfaced it is still being investigated (HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-) without prior reports of this race). See `docs/ISSUES.md` (`ISS-260509-ha-2026.5-untested`).
+
+## v2.3.15
+
+**Two reported bugs fixed:**
+- **UPS package installed but no UPS configured no longer breaks the integration** — On routers with the UPS package enabled but `/system/ups` empty, the integration was issuing a `monitor` query that RouterOS rejected with "no such item", causing a full coordinator disconnect ("Mikrotik Disconnected"). Addresses [#61](https://github.com/jnctech/homeassistant-mikrotik_router/issues/61).
+- **PoE out current value corrected** — The sensor was declared in amperes while RouterOS reports the value in milliamperes, causing displayed values to be 1000× too large (e.g. `1234.56 mA` for a ~25 mA load). Addresses [#60](https://github.com/jnctech/homeassistant-mikrotik_router/issues/60).
+
+## v2.3.14
 
 **librouteros 4.x hotfix** — Pin `librouteros<4.0` in `manifest.json`. Version 4.0.1 of librouteros renamed `connect()`'s `login_methods` kwarg to `login_method`, breaking every install that auto-upgraded. Addresses [#55](https://github.com/jnctech/homeassistant-mikrotik_router/issues/55) and [#56](https://github.com/jnctech/homeassistant-mikrotik_router/issues/56). Proper 4.x migration will ship in a future release.
 

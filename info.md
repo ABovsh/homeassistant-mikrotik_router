@@ -10,7 +10,15 @@ Monitor and control your MikroTik router from Home Assistant.
 
 ![Mikrotik Logo](https://raw.githubusercontent.com/tomaae/homeassistant-mikrotik_router/master/docs/assets/images/ui/header.png)
 
-### What's new in v2.3.14
+### What's new in v2.3.16
+- **API concurrency fix** — `set_value`/`execute` now hold the API lock around the librouteros response iteration, preventing a race with the 30s coordinator poll that could disconnect the integration on rapid switch toggles. Addresses #64.
+- **HA 2026.5.0 / Python 3.14 not yet validated** — testing planned; see `docs/ISSUES.md`.
+
+### v2.3.15
+- **UPS without configured device no longer breaks the integration** — `/system/ups` empty path stopped triggering "Mikrotik Disconnected". Addresses #61.
+- **PoE out current value corrected** — Native unit was AMPERE while RouterOS reports mA, causing values 1000× too large. Now declared as MILLIAMPERE. Addresses #60.
+
+### v2.3.14
 - **Hotfix** — Pin `librouteros<4.0` to prevent integration failure after librouteros 4.0.1 release (`connect()` kwarg rename). Addresses #55 and #56.
 
 ### v2.3.13

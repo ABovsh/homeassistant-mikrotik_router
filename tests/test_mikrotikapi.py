@@ -299,6 +299,60 @@ class TestSetValue:
         assert api.lock.acquire(timeout=1) is True
         api.lock.release()
 
+    def test_lock_held_during_find_entry(self):
+        """Regression test for issue #64: _find_entry iterates the librouteros
+        Path object (which performs socket I/O). It must run while the API
+        lock is held so coordinator polls cannot read from the same socket
+        concurrently and corrupt the response stream.
+        """
+        api, _ = self._connected_api_with_query([{"name": "ether1", ".id": "*1"}])
+        lock_held_during_find = []
+
+        original_find = api._find_entry
+
+        def spy_find_entry(response, param, value):
+            lock_held_during_find.append(api.lock.acquire(blocking=False))
+            return original_find(response, param, value)
+
+        with patch.object(api, "_find_entry", side_effect=spy_find_entry):
+            api.set_value("/interface", "name", "ether1", "disabled", True)
+
+        assert lock_held_during_find == [False], (
+            "_find_entry must run while the API lock is already held"
+        )
+
+
+# --- execute ---
+
+
+class TestExecuteLocking:
+    def test_execute_holds_lock_during_find_entry(self):
+        """Regression test for issue #64: execute()'s _find_entry call must
+        run while the API lock is held."""
+        api = make_api()
+        api._connected = True
+        api._connection = MagicMock()
+        mock_response = MagicMock()
+        mock_response.__iter__ = MagicMock(
+            return_value=iter([{"name": "ether1", ".id": "*1"}])
+        )
+        mock_response.__bool__ = MagicMock(return_value=True)
+        api._connection.path.return_value = mock_response
+        lock_held = []
+
+        original_find = api._find_entry
+
+        def spy_find_entry(response, param, value):
+            lock_held.append(api.lock.acquire(blocking=False))
+            return original_find(response, param, value)
+
+        with patch.object(api, "_find_entry", side_effect=spy_find_entry):
+            api.execute("/system/script", "run", "name", "ether1")
+
+        assert lock_held == [False], (
+            "execute()._find_entry must run while the API lock is already held"
+        )
+
 
 # --- run_script ---
 

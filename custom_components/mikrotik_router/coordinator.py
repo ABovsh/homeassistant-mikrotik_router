@@ -1821,9 +1821,14 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
     # ---------------------------
     def get_ups(self) -> None:
         """Get UPS info from Mikrotik"""
+        ups_source = self.api.query("/system/ups")
+        if not ups_source:
+            self.ds["ups"] = {}
+            return
+
         self.ds["ups"] = parse_api(
             data=self.ds["ups"],
-            source=self.api.query("/system/ups"),
+            source=ups_source,
             vals=[
                 {"name": "name", "default": "unknown"},
                 {"name": "offline-time", "default": "unknown"},
@@ -1850,7 +1855,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "hid-self-test", "default": "unknown"},
             ],
         )
-        if self.ds["ups"]["enabled"]:
+        if self.ds["ups"].get("enabled"):
             self.ds["ups"] = parse_api(
                 data=self.ds["ups"],
                 source=self.api.query(
