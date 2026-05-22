@@ -2,15 +2,95 @@
 
 ## Current Priorities
 
-1. ISS-260512-ci-manifest-drift — CI installs `librouteros` unpinned and resolves to 4.0.1, while `manifest.json` pins `<4.0`; v2.3.14 hotfix was effectively untested against the version it shipped to (external audit 2026-05-12). **Fix in `fix/ci-manifest-drift-guard`.**
-2. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
+1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
 2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
 3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
 4. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
+5. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
+6. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
+
+(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71.)
 
 ---
 
 ## Active
+
+### ENH-260523-ha-release-watch — scheduled HA release-notes watcher
+**Type:** Enhancement (tooling / ops awareness)
+**Priority:** Low
+**Created:** 2026-05-23
+**Status:** 🟡 Proposed
+
+**Need:**
+HA major/minor releases occasionally introduce changes that affect this integration (see ISS-260509-ha-2026.5-untested — 2026.5.0's Python 3.14 + thread-scheduling changes exposed the v2.3.16 lock race). Currently there is no automated signal that a new HA release has landed; the maintainer learns about it via user issue reports against the new version.
+
+**Proposed shape:**
+A separate `.github/workflows/ha-release-watch.yml` workflow on a `schedule:` cron (e.g. weekly Monday 06:00 UTC) that:
+1. Fetches the HA blog / releases RSS feed.
+2. Diffs against the last-seen version stored as a workflow-readable artefact or a value in `docs/`.
+3. If a new minor/major appears, opens a GitHub issue tagged `ha-compat` with the release notes link and a checklist (entity migrations, deprecated APIs, breaking changes for `local_polling`).
+
+**Why a separate workflow, not in `ci.yml`:**
+CI runs on PRs/pushes, which is the wrong cadence for external-system watching and bloats per-PR time. A separate scheduled workflow keeps the concern isolated and skippable if quota matters.
+
+**Alternative considered:**
+Subscribe to HA RSS in the maintainer's reader / email — zero CI infra, no auditable history. The CI version is preferred if/when this lands because the issues it opens are searchable history for future "when did we know about X" forensics.
+
+**Plan:**
+Spec the workflow file, design the issue-template, decide last-seen storage (workflow artifact vs file). Defer until the maintainer has bandwidth — this is purely additive.
+
+---
+
+### ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots
+**Type:** Enhancement (agent discipline)
+**Priority:** Low
+**Created:** 2026-05-23
+**Status:** 🟡 Proposed
+
+**Need:**
+Conversational drift — the agent and user collaboratively pivot away from the current branch's stated scope onto unrelated tangents ("can we also...", "while we're at it..."), expanding the PR diff and obscuring the original change. The sibling `gedcom-tree-parser` project has documented prompt-engineered discipline for this (PLAN.md "Agent discipline" + "STOP-and-ASK triggers" + "Drift corrective input pattern") but it is enforced socially via prompts, not mechanically via a hook. This repo has no equivalent.
+
+**Proposed shape:**
+A fourth `.claude/hooks/user-prompt-scope-drift.sh` (UserPromptSubmit) that:
+1. Reads the current branch name (`git branch --show-current`).
+2. Reads the corresponding CR entry from `docs/CHANGE-REGISTER.md` for that branch slug — the "What Changed" table establishes scope.
+3. Heuristically checks the user prompt for off-scope intent markers: "also", "while we're at it", "can we", "let's also", "by the way".
+4. If detected AND the prompt does not reference any scope keyword from the CR's "What Changed" rows, surface a one-line inline reminder: "[scope-drift?] Current branch CR scope is X. New ask appears off-scope — capture as ENH-YYMMDD or continue?"
+
+Non-blocking. The user always chooses.
+
+**Why this is hard (and why it's proposed not done):**
+False-positive cost is high — "can we" appears in genuine on-scope follow-ups ("can we also add a test for the C901 check?"). The scope-keyword extraction from the CR entry is fuzzy. A poorly-tuned version of this hook would be more annoying than useful.
+
+**Plan:**
+- Prototype against a recorded session log (e.g. this very session — it drifted into HA release-notes review and scope-drift discussion while finishing CR-260522).
+- Tune the prompt-marker list against false positives.
+- Decide whether the hook fires on every prompt or only after N exchanges in the same session.
+
+---
+
+### ISS-260522-ruff-format-drift — 26 files needed reformat under new `line-length=220`
+**Type:** Bug (process / tooling)
+**Priority:** Medium
+**Created:** 2026-05-22
+**Status:** 🔴 Closed — bundled into PR #71 (CR-260522)
+
+**Symptom:**
+During T2.1 verification of CR-260522, `ruff format --check` reported 26 files in `custom_components/mikrotik_router` + `tests/` as "would reformat". Both local ruff 0.11.4 and pre-commit-pinned ruff v0.9.0 produced the same reformat — no version-skew involved.
+
+**Initial hypothesis (wrong):**
+The pre-commit `ruff-format` hook was silently not running on recent commits, so format drift had been accumulating undetected.
+
+**Actual cause (discovered when applying the fix):**
+The drift is the direct consequence of CR-260522's new `pyproject.toml` setting `[tool.ruff] line-length = 220`. The previous codebase was formatted against ruff's undeclared default (line-length=88); the wider 220-char setting causes ruff to join shorter lines that were previously kept apart. CI on `dev` is and always was format-clean — the "drift" only appears in PR #71's working state because that's where the line-length config lives.
+
+**Fix:**
+Ran `ruff format` once over `custom_components/` and `tests/` on the CR-260522 branch; the 26 reformatted files are committed in the same PR as the config that requires them. `ruff check` continues to pass on every file.
+
+**Why this matters (lesson, not a follow-up):**
+Diagnosing a "drift" symptom by jumping to "the hook must not be running" without isolating the variables (e.g. `git checkout dev && ruff format --check`) wasted some time. When two things change together (new config + drift report), test each in isolation before forming a theory about hook health.
+
+---
 
 ### ISS-260512-ci-manifest-drift — CI tested against the wrong librouteros version
 **Type:** Bug (process / supply chain)
