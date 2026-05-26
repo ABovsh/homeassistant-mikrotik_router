@@ -301,6 +301,28 @@ librouteros 4.0.1 renamed the `connect()` keyword argument `login_methods` → `
 
 ## Backlog
 
+### ENH-260509-poe-energy-sensors — native PoE energy (kWh) sensors for the Energy Dashboard
+**Type:** Enhancement
+**Priority:** Medium
+**Created:** 2026-05-09 (promised on #59; entry created 2026-05-26)
+**Status:** 🟢 Open
+**Reporter:** @Dillton ([#59](https://github.com/jnctech/homeassistant-mikrotik_router/issues/59))
+
+**Need:**
+Native energy (kWh) sensors so users don't have to hand-build Integral helpers for the Energy Dashboard. Per-port `poe_out_<port>_energy` plus a `poe_out_energy_total`, all `device_class: energy`, `state_class: total_increasing`. (Interim helper-based approach is documented in the README — "Adding PoE energy to the Energy Dashboard".)
+
+**Approach:**
+- Trapezoidal Riemann accumulation in the coordinator: `wh += (p_now + p_prev) / 2 * dt / 3600`.
+- Built on `RestoreSensor` so counters survive HA restarts (the Energy Dashboard treats a reset as a new cycle otherwise). **New pattern for this repo** — not previously used here; needs care to get restart-persistence right.
+- Opt-in via the existing PoE-port-sensors toggle.
+- Handle `None` power samples (cable unplugged / port disabled) without breaking counter monotonicity.
+
+**Blocked-on:** nothing as of 2026-05-26 — the prior blocker (#68 CAPsMAN, shipped in v2.3.18) is resolved.
+
+**Validation gap:** maintainer hardware reports `null` PoE power (no metering silicon), so counter accuracy and restore behaviour must be validated on reporter hardware via a beta tag. @Dillton volunteered (#59).
+
+---
+
 ### ISS-260326-tracker-wireless-detection — Device tracker uses old wireless detection logic
 **Type:** Bug
 **Priority:** Medium
