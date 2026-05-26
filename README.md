@@ -21,9 +21,15 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
-## What's New — v2.3.17
+## What's New — v2.3.18
 
-**CAPsMAN AP-virtual interface surfaced on device trackers** — When a wireless client is also claimed by a DHCP/ARP/bridge merge (which happens whenever DHCP leases persist across polls), the `interface` attribute previously held the bridge name, not the AP-virtual interface. v2.3.17 adds a new additive `capsman-interface` attribute populated *unconditionally* from `/caps-man/registration-table` (or `/interface/wifi/registration-table` on v7.13+), so you can identify which AP a client is connected to (e.g. `Slaapkamer`, `Zolder`) regardless of which merge claimed the host first. The endpoint selection now also has a fallback: v7.13+ users still running legacy CAPsMAN (where the new wifi endpoint returns empty) automatically fall back to the legacy `/caps-man/` endpoint — fixes the specific case reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) where the version-based selection misrouted. Existing `interface` and `source` semantics are unchanged — automations that filter on those keys keep working. See [ADR-011](docs/decisions/ADR-011-capsman-attributes.md).
+CAPsMAN now works on RouterOS 7.13+ devices that still run the legacy `wireless` package. Wireless clients on those setups weren't being detected before; they are now.
+
+- New `capsman-interface` attribute on device trackers shows which access point a wireless client is connected to (for example `Slaapkamer` or `Zolder`), useful for per-room automations.
+- Fixed CAPsMAN detection on 7.13+ routers running the legacy wireless package.
+- Internal CI and tooling changes, no user-facing impact.
+
+Thanks to @fuecy for the diagnostics and clean-install testing. Technical detail in [ADR-011](docs/decisions/ADR-011-capsman-attributes.md).
 
 ## v2.3.16
 
