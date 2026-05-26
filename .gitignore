@@ -5,6 +5,13 @@ output/
 coverage.xml
 .coverage
 
+# Local-only investigation artefacts: HA logs, diagnostics dumps, live-deploy
+# captures. Treat as sensitive (may contain tokens, MACs, internal hostnames,
+# credentials in tracebacks). Do not commit. Keep the folder placeholder so
+# tooling can write here without first creating the dir.
+docs/internal/*
+!docs/internal/.gitkeep
+
 # .claude/ — gitignored by default, with explicit re-includes for team-shared
 # Claude Code config (settings.json, hooks, commands, agents, skills).
 # Personal/runtime state stays ignored (settings.local.json, scheduled_tasks.lock,
