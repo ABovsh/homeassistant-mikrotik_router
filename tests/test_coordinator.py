@@ -79,6 +79,7 @@ def make_coordinator(options=None, api_responses=None, major_fw_version=6):
     coordinator.major_fw_version = major_fw_version
     coordinator.minor_fw_version = 0
     coordinator.api = MockMikrotikAPI(responses=api_responses or {})
+    coordinator._known_uids = {}
 
     cfg = MagicMock()
     cfg.options = options or {}
@@ -793,15 +794,11 @@ async def test_resolve_manufacturer_error_sets_empty_string():
     """When mac_lookup.lookup raises, manufacturer is set to '' not left as 'detect'."""
     mac = "AA:BB:CC:DD:EE:FF"
     coordinator = make_coordinator_for_host(
-        arp_entries={
-            mac: {"mac-address": mac, "address": "192.168.1.10", "interface": "ether1"}
-        },
+        arp_entries={mac: {"mac-address": mac, "address": "192.168.1.10", "interface": "ether1"}},
         host_entries={mac: _host_entry(mac)},
     )
 
-    coordinator.async_mac_lookup.lookup = AsyncMock(
-        side_effect=OSError("lookup DB unavailable")
-    )
+    coordinator.async_mac_lookup.lookup = AsyncMock(side_effect=OSError("lookup DB unavailable"))
 
     await coordinator.async_process_host()
 
@@ -1108,9 +1105,7 @@ def test_set_value_delegates_to_api():
     coordinator = make_coordinator()
     coordinator.api.set_value = MagicMock(return_value=True)
     result = coordinator.set_value("/interface", "name", "ether1", "disabled", True)
-    coordinator.api.set_value.assert_called_once_with(
-        "/interface", "name", "ether1", "disabled", True
-    )
+    coordinator.api.set_value.assert_called_once_with("/interface", "name", "ether1", "disabled", True)
     assert result is True
 
 
@@ -1119,9 +1114,7 @@ def test_execute_delegates_to_api():
     coordinator = make_coordinator()
     coordinator.api.execute = MagicMock(return_value=True)
     result = coordinator.execute("/system", "reboot", None, None)
-    coordinator.api.execute.assert_called_once_with(
-        "/system", "reboot", None, None, None
-    )
+    coordinator.api.execute.assert_called_once_with("/system", "reboot", None, None, None)
     assert result is True
 
 
@@ -2073,10 +2066,7 @@ def test_dhcp_active_mac_override():
     coordinator.get_dhcp()
     # Dict key stays as original mac, but mac-address value is updated
     assert "AA:BB:CC:DD:EE:01" in coordinator.ds["dhcp"]
-    assert (
-        coordinator.ds["dhcp"]["AA:BB:CC:DD:EE:01"]["mac-address"]
-        == "AA:BB:CC:DD:EE:02"
-    )
+    assert coordinator.ds["dhcp"]["AA:BB:CC:DD:EE:01"]["mac-address"] == "AA:BB:CC:DD:EE:02"
 
 
 def test_dhcp_interface_from_arp_fallback():
@@ -2331,9 +2321,7 @@ def test_arp_bridge_interface_resolution():
         }
     )
     coordinator.ds["bridge"] = {"bridge1": True}
-    coordinator.ds["bridge_host"] = {
-        "AA:BB:CC:DD:EE:01": {"interface": "ether2", "bridge": "bridge1"}
-    }
+    coordinator.ds["bridge_host"] = {"AA:BB:CC:DD:EE:01": {"interface": "ether2", "bridge": "bridge1"}}
     coordinator.get_arp()
     entry = coordinator.ds["arp"]["AA:BB:CC:DD:EE:01"]
     assert entry["bridge"] == "bridge1"
@@ -3021,26 +3009,43 @@ def test_dhcp_client_enriched_defaults():
 
 
 def test_capsman_hosts_v6():
-    """CAPS-MAN hosts use /caps-man/ path for RouterOS < 7.13."""
+    """CAPS-MAN hosts use /caps-man/ path for RouterOS < 7.13, with full metrics."""
     coordinator = make_coordinator(
         major_fw_version=6,
         api_responses={
             "/caps-man/registration-table": [
                 {
                     "mac-address": "AA:BB:CC:DD:EE:01",
-                    "interface": "cap1",
+                    "interface": "Slaapkamer",
                     "ssid": "MyWifi",
+                    "rx-signal": "-76",
+                    "tx-rate": "57.7Mbps-20MHz/1S/SGI",
+                    "rx-rate": "57.7Mbps-20MHz/1S/SGI",
+                    "uptime": "1h2m3s",
+                    "bytes": "1234,5678",
+                    "packets": "10,20",
+                    "last-ip": "192.168.1.50",
+                    "eap-identity": "",
                 },
             ],
         },
     )
     coordinator.get_capsman_hosts()
-    assert "AA:BB:CC:DD:EE:01" in coordinator.ds["capsman_hosts"]
-    assert coordinator.ds["capsman_hosts"]["AA:BB:CC:DD:EE:01"]["ssid"] == "MyWifi"
+    host_vals = coordinator.ds["capsman_hosts"]["AA:BB:CC:DD:EE:01"]
+    assert host_vals["interface"] == "Slaapkamer"
+    assert host_vals["ssid"] == "MyWifi"
+    # rx-signal is renamed to signal-strength post-parse_api for cross-endpoint
+    # consistency with /interface/wireless/registration-table.
+    assert host_vals["signal-strength"] == "-76"
+    assert "rx-signal" not in host_vals
+    assert host_vals["tx-rate"] == "57.7Mbps-20MHz/1S/SGI"
+    assert host_vals["rx-rate"] == "57.7Mbps-20MHz/1S/SGI"
+    assert host_vals["uptime"] == "1h2m3s"
+    assert host_vals["last-ip"] == "192.168.1.50"
 
 
 def test_capsman_hosts_v7_13():
-    """CAPS-MAN hosts use /interface/wifi/ path for RouterOS >= 7.13."""
+    """v7.13+ — primary /interface/wifi/ used when it returns data; legacy ignored."""
     coordinator = make_coordinator(major_fw_version=7)
     coordinator.minor_fw_version = 13
     coordinator.api = MockMikrotikAPI(
@@ -3052,11 +3057,84 @@ def test_capsman_hosts_v7_13():
                     "ssid": "NewWifi",
                 },
             ],
+            # Legacy path also has data — must be ignored when primary returns rows.
+            "/caps-man/registration-table": [
+                {
+                    "mac-address": "FF:FF:FF:FF:FF:FF",
+                    "interface": "should-not-appear",
+                    "ssid": "ignore-me",
+                },
+            ],
         }
     )
     coordinator.get_capsman_hosts()
-    assert "AA:BB:CC:DD:EE:01" in coordinator.ds["capsman_hosts"]
+    assert list(coordinator.ds["capsman_hosts"].keys()) == ["AA:BB:CC:DD:EE:01"]
     assert coordinator.ds["capsman_hosts"]["AA:BB:CC:DD:EE:01"]["interface"] == "wifi1"
+
+
+def test_capsman_hosts_v7_13_fallback_to_caps_man():
+    """v7.13+ — when /interface/wifi/ is empty (e.g. @fuecy on RouterOS 7.21.4
+    still running legacy CAPsMAN), fall back to /caps-man/ and use that data.
+
+    Validates ENH-260523-capsman-endpoint-fallback.
+    """
+    coordinator = make_coordinator(major_fw_version=7)
+    coordinator.minor_fw_version = 21  # @fuecy is on 7.21.4
+    coordinator.api = MockMikrotikAPI(
+        responses={
+            "/interface/wifi/registration-table": [],  # empty, as on @fuecy's router
+            "/caps-man/registration-table": [
+                {
+                    "mac-address": "AA:BB:CC:DD:EE:01",
+                    "interface": "Slaapkamer",
+                    "ssid": "MyWifi",
+                    "rx-signal": "-76",
+                    "tx-rate": "57.7Mbps",
+                    "rx-rate": "57.7Mbps",
+                },
+            ],
+        }
+    )
+    coordinator.get_capsman_hosts()
+    host_vals = coordinator.ds["capsman_hosts"]["AA:BB:CC:DD:EE:01"]
+    assert host_vals["interface"] == "Slaapkamer"
+    # rx-signal → signal-strength rename must still fire on the fallback path.
+    assert host_vals["signal-strength"] == "-76"
+    assert "rx-signal" not in host_vals
+
+
+def test_capsman_hosts_v7_13_both_endpoints_empty():
+    """v7.13+ — both endpoints empty → empty capsman_hosts (no crash, no log spam)."""
+    coordinator = make_coordinator(major_fw_version=7)
+    coordinator.minor_fw_version = 13
+    coordinator.api = MockMikrotikAPI(
+        responses={
+            "/interface/wifi/registration-table": [],
+            "/caps-man/registration-table": [],
+        }
+    )
+    coordinator.get_capsman_hosts()
+    assert coordinator.ds["capsman_hosts"] == {}
+
+
+def test_capsman_hosts_v6_does_not_probe_wifi_endpoint():
+    """v6 / v7 ≤ 12 — wifi endpoint isn't in the probe list; only /caps-man/ is queried."""
+    coordinator = make_coordinator(
+        major_fw_version=6,
+        api_responses={
+            "/caps-man/registration-table": [
+                {
+                    "mac-address": "AA:BB:CC:DD:EE:01",
+                    "interface": "cap1",
+                    "ssid": "MyWifi",
+                },
+            ],
+            # /interface/wifi/registration-table intentionally absent — the
+            # probe list for v6 doesn't include it, so it must not be queried.
+        },
+    )
+    coordinator.get_capsman_hosts()
+    assert "AA:BB:CC:DD:EE:01" in coordinator.ds["capsman_hosts"]
 
 
 # ---------------------------------------------------------------------------
@@ -3297,10 +3375,7 @@ def test_process_interface_client_single_arp():
     }
     coordinator.process_interface_client()
     assert coordinator.ds["interface"]["ether1"]["client-ip-address"] == "192.168.1.10"
-    assert (
-        coordinator.ds["interface"]["ether1"]["client-mac-address"]
-        == "AA:BB:CC:DD:EE:01"
-    )
+    assert coordinator.ds["interface"]["ether1"]["client-mac-address"] == "AA:BB:CC:DD:EE:01"
 
 
 def test_process_interface_client_multiple_arp():
@@ -3586,13 +3661,17 @@ def test_get_iface_from_entry():
 
 
 def test_merge_capsman_hosts_returns_detected():
-    """_merge_capsman_hosts merges CAPS-MAN entries and returns detected dict."""
+    """_merge_capsman_hosts claims a new host with source=capsman, writes both
+    interface and capsman-interface, and copies optional wireless metrics."""
     coordinator = make_coordinator_for_host()
     coordinator.support_capsman = True
     coordinator.ds["capsman_hosts"] = {
         "AA:BB:CC:DD:EE:01": {
             "mac-address": "AA:BB:CC:DD:EE:01",
-            "interface": "cap1",
+            "interface": "Slaapkamer",
+            "signal-strength": "-76",
+            "tx-rate": "57.7Mbps",
+            "rx-rate": "57.7Mbps",
         }
     }
 
@@ -3602,7 +3681,13 @@ def test_merge_capsman_hosts_returns_detected():
     host = coordinator.ds["host"]["AA:BB:CC:DD:EE:01"]
     assert host["source"] == "capsman"
     assert host["available"] is True
-    assert host["interface"] == "cap1"
+    assert host["interface"] == "Slaapkamer"
+    # ADR-011: capsman-interface is always written for capsman-claimed hosts,
+    # so DHCP/ARP merges that later overlay the host do not lose the AP identity.
+    assert host["capsman-interface"] == "Slaapkamer"
+    assert host["signal-strength"] == "-76"
+    assert host["tx-rate"] == "57.7Mbps"
+    assert host["rx-rate"] == "57.7Mbps"
 
 
 def test_merge_capsman_hosts_skips_when_not_supported():
@@ -3616,21 +3701,76 @@ def test_merge_capsman_hosts_skips_when_not_supported():
     assert "AA:BB:CC:DD:EE:01" not in coordinator.ds["host"]
 
 
-def test_merge_capsman_hosts_skips_existing_non_capsman():
-    """_merge_capsman_hosts skips host already tracked by different source."""
+def test_merge_capsman_hosts_overlay_on_dhcp_host():
+    """ADR-011 regression test: existing host with source=dhcp gets a
+    capsman-interface overlay but its source/interface/availability are
+    NOT changed. This is the bug #68 fix — when DHCP claims first
+    (persistent leases), capsman previously skipped entirely, hiding the
+    AP-virtual interface from device_tracker entities."""
     coordinator = make_coordinator_for_host()
     coordinator.support_capsman = True
-    coordinator.ds["host"]["AA:BB:CC:DD:EE:01"] = {"source": "dhcp"}
+    coordinator.ds["host"]["AA:BB:CC:DD:EE:01"] = {
+        "source": "dhcp",
+        "interface": "bridge",
+        "available": True,
+        "last-seen": "preserve-me",
+    }
     coordinator.ds["capsman_hosts"] = {
         "AA:BB:CC:DD:EE:01": {
             "mac-address": "AA:BB:CC:DD:EE:01",
-            "interface": "cap1",
+            "interface": "Slaapkamer",
+            "signal-strength": "-76",
+            "tx-rate": "57.7Mbps",
+            "rx-rate": "57.7Mbps",
         }
     }
 
     detected = coordinator._merge_capsman_hosts()
+
+    # Not capsman-detected because source is still dhcp — preserves the
+    # existing "detected by capsman" set semantics used by _remove_undetected_hosts.
     assert "AA:BB:CC:DD:EE:01" not in detected
-    assert coordinator.ds["host"]["AA:BB:CC:DD:EE:01"]["source"] == "dhcp"
+
+    host = coordinator.ds["host"]["AA:BB:CC:DD:EE:01"]
+    # Source and primary interface are NOT changed.
+    assert host["source"] == "dhcp"
+    assert host["interface"] == "bridge"
+    # last-seen is NOT touched (the dhcp source manages availability).
+    assert host["last-seen"] == "preserve-me"
+    # But the capsman-interface IS now recorded for automations.
+    assert host["capsman-interface"] == "Slaapkamer"
+    # Wireless metrics ARE overlaid (they don't conflict with dhcp-source data).
+    assert host["signal-strength"] == "-76"
+    assert host["tx-rate"] == "57.7Mbps"
+    assert host["rx-rate"] == "57.7Mbps"
+
+
+def test_merge_capsman_hosts_overlay_updates_availability_for_capsman_source():
+    """When the existing host is itself capsman-sourced (not new this poll),
+    the overlay path still updates available/last-seen, since capsman owns
+    that host's availability."""
+    coordinator = make_coordinator_for_host()
+    coordinator.support_capsman = True
+    coordinator.ds["host"]["AA:BB:CC:DD:EE:02"] = {
+        "source": "capsman",
+        "interface": "Slaapkamer",
+        "available": False,
+        "last-seen": "stale",
+    }
+    coordinator.ds["capsman_hosts"] = {
+        "AA:BB:CC:DD:EE:02": {
+            "mac-address": "AA:BB:CC:DD:EE:02",
+            "interface": "Slaapkamer",
+        }
+    }
+
+    detected = coordinator._merge_capsman_hosts()
+
+    assert "AA:BB:CC:DD:EE:02" in detected
+    host = coordinator.ds["host"]["AA:BB:CC:DD:EE:02"]
+    assert host["available"] is True
+    assert host["last-seen"] != "stale"
+    assert host["capsman-interface"] == "Slaapkamer"
 
 
 def test_merge_wireless_hosts_returns_detected():
@@ -3782,9 +3922,7 @@ def test_ensure_host_defaults():
 def test_update_host_availability_capsman_not_detected():
     """Capsman host not in detected set becomes unavailable."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["host"] = {
-        "AA:BB:CC:DD:EE:10": {"source": "capsman", "available": True}
-    }
+    coordinator.ds["host"] = {"AA:BB:CC:DD:EE:10": {"source": "capsman", "available": True}}
 
     coordinator._update_host_availability(
         "AA:BB:CC:DD:EE:10",
@@ -3801,9 +3939,7 @@ def test_update_host_availability_capsman_not_detected():
 def test_update_host_availability_wired_arp_detected():
     """Wired host in arp_detected set becomes available."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["host"] = {
-        "AA:BB:CC:DD:EE:11": {"source": "arp", "available": False, "last-seen": False}
-    }
+    coordinator.ds["host"] = {"AA:BB:CC:DD:EE:11": {"source": "arp", "available": False, "last-seen": False}}
 
     coordinator._update_host_availability(
         "AA:BB:CC:DD:EE:11",
@@ -3891,9 +4027,7 @@ def test_resolve_hostname_from_dns():
 def test_resolve_hostname_from_dns_name():
     """Hostname resolved from DNS name when comment is empty."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["host"] = {
-        "mac1": {"host-name": "unknown", "address": "192.168.1.10"}
-    }
+    coordinator.ds["host"] = {"mac1": {"host-name": "unknown", "address": "192.168.1.10"}}
     coordinator.ds["dns"] = {
         "entry1": {
             "address": "192.168.1.10",
@@ -3944,26 +4078,18 @@ def test_resolve_hostname_from_dhcp_hostname():
 def test_resolve_hostname_fallback_to_mac():
     """Hostname falls back to MAC address when no other source available."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["host"] = {
-        "AA:BB:CC:DD:EE:FF": {"host-name": "unknown", "address": "unknown"}
-    }
+    coordinator.ds["host"] = {"AA:BB:CC:DD:EE:FF": {"host-name": "unknown", "address": "unknown"}}
     coordinator.ds["dns"] = {}
     coordinator.ds["dhcp"] = {}
 
-    coordinator._resolve_hostname(
-        "AA:BB:CC:DD:EE:FF", coordinator.ds["host"]["AA:BB:CC:DD:EE:FF"]
-    )
-    assert (
-        coordinator.ds["host"]["AA:BB:CC:DD:EE:FF"]["host-name"] == "AA:BB:CC:DD:EE:FF"
-    )
+    coordinator._resolve_hostname("AA:BB:CC:DD:EE:FF", coordinator.ds["host"]["AA:BB:CC:DD:EE:FF"])
+    assert coordinator.ds["host"]["AA:BB:CC:DD:EE:FF"]["host-name"] == "AA:BB:CC:DD:EE:FF"
 
 
 def test_resolve_hostname_skips_when_already_known():
     """_resolve_hostname does nothing when hostname is already set."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["host"] = {
-        "mac1": {"host-name": "already-known", "address": "192.168.1.10"}
-    }
+    coordinator.ds["host"] = {"mac1": {"host-name": "already-known", "address": "192.168.1.10"}}
     coordinator.ds["dns"] = {}
 
     coordinator._resolve_hostname("mac1", coordinator.ds["host"]["mac1"])
@@ -4066,9 +4192,7 @@ def test_init_accounting_hosts_skips_existing():
             "host-name": "pc1",
         }
     }
-    coordinator.ds["client_traffic"] = {
-        "mac1": {"address": "192.168.1.1", "available": True}
-    }
+    coordinator.ds["client_traffic"] = {"mac1": {"address": "192.168.1.1", "available": True}}
 
     coordinator._init_accounting_hosts()
     assert coordinator.ds["client_traffic"]["mac1"]["available"] is True
@@ -4077,9 +4201,7 @@ def test_init_accounting_hosts_skips_existing():
 def test_classify_accounting_traffic_wan():
     """_classify_accounting_traffic classifies WAN TX/RX correctly."""
     coordinator = make_coordinator()
-    coordinator.ds["dhcp-network"] = {
-        "net1": {"IPv4Network": __import__("ipaddress").IPv4Network("192.168.1.0/24")}
-    }
+    coordinator.ds["dhcp-network"] = {"net1": {"IPv4Network": __import__("ipaddress").IPv4Network("192.168.1.0/24")}}
 
     tmp = {"192.168.1.10": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0}}
     accounting_data = {
@@ -4106,9 +4228,7 @@ def test_classify_accounting_traffic_wan():
 def test_classify_accounting_traffic_lan():
     """_classify_accounting_traffic classifies LAN TX/RX correctly."""
     coordinator = make_coordinator()
-    coordinator.ds["dhcp-network"] = {
-        "net1": {"IPv4Network": __import__("ipaddress").IPv4Network("192.168.1.0/24")}
-    }
+    coordinator.ds["dhcp-network"] = {"net1": {"IPv4Network": __import__("ipaddress").IPv4Network("192.168.1.0/24")}}
 
     tmp = {
         "192.168.1.10": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0},
@@ -4136,18 +4256,14 @@ def test_classify_accounting_traffic_lan():
 def test_hostname_from_dns_returns_comment():
     """DNS comment takes priority for hostname."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["dns"] = {
-        "e1": {"address": "10.0.0.1", "comment": "MyPC#tag", "name": "mypc.local"}
-    }
+    coordinator.ds["dns"] = {"e1": {"address": "10.0.0.1", "comment": "MyPC#tag", "name": "mypc.local"}}
     assert coordinator._hostname_from_dns("mac1", "10.0.0.1") == "MyPC"
 
 
 def test_hostname_from_dns_falls_back_to_name():
     """DNS name (before first dot) used when comment is empty and no DHCP comment."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["dns"] = {
-        "e1": {"address": "10.0.0.1", "comment": "", "name": "server.lan"}
-    }
+    coordinator.ds["dns"] = {"e1": {"address": "10.0.0.1", "comment": "", "name": "server.lan"}}
     coordinator.ds["dhcp"] = {}
     assert coordinator._hostname_from_dns("mac1", "10.0.0.1") == "server"
 
@@ -4155,27 +4271,21 @@ def test_hostname_from_dns_falls_back_to_name():
 def test_hostname_from_dns_no_match():
     """Returns None when no DNS entry matches the address."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["dns"] = {
-        "e1": {"address": "10.0.0.99", "comment": "Other", "name": "other.lan"}
-    }
+    coordinator.ds["dns"] = {"e1": {"address": "10.0.0.99", "comment": "Other", "name": "other.lan"}}
     assert coordinator._hostname_from_dns("mac1", "10.0.0.1") is None
 
 
 def test_hostname_from_dhcp_returns_comment():
     """DHCP comment used when available."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["dhcp"] = {
-        "mac1": {"enabled": True, "comment": "Laptop#x", "host-name": "other"}
-    }
+    coordinator.ds["dhcp"] = {"mac1": {"enabled": True, "comment": "Laptop#x", "host-name": "other"}}
     assert coordinator._hostname_from_dhcp("mac1") == "Laptop"
 
 
 def test_hostname_from_dhcp_returns_hostname():
     """DHCP host-name used when comment is empty."""
     coordinator = make_coordinator_for_host()
-    coordinator.ds["dhcp"] = {
-        "mac1": {"enabled": True, "comment": "", "host-name": "dhcp-name"}
-    }
+    coordinator.ds["dhcp"] = {"mac1": {"enabled": True, "comment": "", "host-name": "dhcp-name"}}
     assert coordinator._hostname_from_dhcp("mac1") == "dhcp-name"
 
 
@@ -4197,9 +4307,7 @@ def test_add_traffic_bytes_lan():
         "10.0.0.1": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0},
         "10.0.0.2": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0},
     }
-    MikrotikCoordinator._add_traffic_bytes(
-        tmp, "10.0.0.1", "10.0.0.2", 100, src_local=True, dst_local=True
-    )
+    MikrotikCoordinator._add_traffic_bytes(tmp, "10.0.0.1", "10.0.0.2", 100, src_local=True, dst_local=True)
     assert tmp["10.0.0.1"]["lan-tx"] == 100
     assert tmp["10.0.0.2"]["lan-rx"] == 100
 
@@ -4207,27 +4315,21 @@ def test_add_traffic_bytes_lan():
 def test_add_traffic_bytes_wan_tx():
     """WAN TX when source is local and destination is external."""
     tmp = {"10.0.0.1": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0}}
-    MikrotikCoordinator._add_traffic_bytes(
-        tmp, "10.0.0.1", "8.8.8.8", 200, src_local=True, dst_local=False
-    )
+    MikrotikCoordinator._add_traffic_bytes(tmp, "10.0.0.1", "8.8.8.8", 200, src_local=True, dst_local=False)
     assert tmp["10.0.0.1"]["wan-tx"] == 200
 
 
 def test_add_traffic_bytes_wan_rx():
     """WAN RX when source is external and destination is local."""
     tmp = {"10.0.0.1": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0}}
-    MikrotikCoordinator._add_traffic_bytes(
-        tmp, "8.8.8.8", "10.0.0.1", 300, src_local=False, dst_local=True
-    )
+    MikrotikCoordinator._add_traffic_bytes(tmp, "8.8.8.8", "10.0.0.1", 300, src_local=False, dst_local=True)
     assert tmp["10.0.0.1"]["wan-rx"] == 300
 
 
 def test_add_traffic_bytes_external_to_external():
     """External-to-external traffic is ignored."""
     tmp = {"10.0.0.1": {"wan-tx": 0, "wan-rx": 0, "lan-tx": 0, "lan-rx": 0}}
-    MikrotikCoordinator._add_traffic_bytes(
-        tmp, "8.8.8.8", "1.1.1.1", 400, src_local=False, dst_local=False
-    )
+    MikrotikCoordinator._add_traffic_bytes(tmp, "8.8.8.8", "1.1.1.1", 400, src_local=False, dst_local=False)
     assert tmp["10.0.0.1"]["wan-tx"] == 0
     assert tmp["10.0.0.1"]["wan-rx"] == 0
 
@@ -4456,9 +4558,7 @@ def test_is_wireless_host_bridge_lookup():
     mac = "AA:BB:CC:DD:EE:01"
     coordinator = make_coordinator_for_host()
     coordinator.ds["wireless"] = {"wlan1": {"name": "wlan1"}}
-    coordinator.ds["bridge_host"] = {
-        mac: {"interface": "wlan1", "bridge": "bridge1", "enabled": True}
-    }
+    coordinator.ds["bridge_host"] = {mac: {"interface": "wlan1", "bridge": "bridge1", "enabled": True}}
     vals = {"source": "arp", "interface": "bridge1"}
     assert coordinator._is_wireless_host(mac, vals) is True
 
@@ -4621,3 +4721,219 @@ async def test_bridged_ap_wireless_count():
 
     assert coordinator.ds["resource"]["clients_wireless"] == 2
     assert coordinator.ds["resource"]["clients_wired"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _check_new_uids — new device discovery dispatcher guard
+# ---------------------------------------------------------------------------
+
+
+def test_check_new_uids_first_run_seeds_but_skips():
+    """First run seeds tracking but returns empty (no dispatcher on initial load)."""
+    coordinator = make_coordinator()
+    coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
+    assert coordinator._check_new_uids() == []
+    # Tracking is now seeded
+    assert "interface" in coordinator._known_uids
+
+
+def test_check_new_uids_no_change_returns_empty():
+    """No new UIDs returns empty list."""
+    coordinator = make_coordinator()
+    coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
+    coordinator._check_new_uids()  # seed
+    assert coordinator._check_new_uids() == []
+
+
+def test_check_new_uids_new_uid_returns_path():
+    """Adding a new UID returns the changed data path."""
+    coordinator = make_coordinator()
+    coordinator.ds["interface"] = {"ether1": {"name": "ether1"}}
+    coordinator._check_new_uids()  # seed
+
+    coordinator.ds["interface"]["ether2"] = {"name": "ether2"}
+    result = coordinator._check_new_uids()
+    assert "interface" in result
+
+
+def test_check_new_uids_removed_uid_returns_empty():
+    """Removing a UID does not trigger (only new UIDs matter)."""
+    coordinator = make_coordinator()
+    coordinator.ds["interface"] = {"ether1": {}, "ether2": {}}
+    coordinator._check_new_uids()  # seed
+
+    del coordinator.ds["interface"]["ether2"]
+    assert coordinator._check_new_uids() == []
+
+
+def test_check_new_uids_skips_non_dict_paths():
+    """Non-dict ds paths (like access list) are skipped."""
+    coordinator = make_coordinator()
+    coordinator.ds["access"] = ["write", "policy"]  # list, not dict
+    coordinator.ds["interface"] = {"ether1": {}}
+    coordinator._check_new_uids()  # seed
+    assert coordinator._check_new_uids() == []
+
+
+def test_check_new_uids_new_host_triggers():
+    """New host appearing in ds triggers dispatcher."""
+    coordinator = make_coordinator()
+    coordinator.ds["host"] = {"mac1": {"host-name": "phone"}}
+    coordinator._check_new_uids()  # seed
+
+    coordinator.ds["host"]["mac2"] = {"host-name": "laptop"}
+    result = coordinator._check_new_uids()
+    assert "host" in result
+
+
+@pytest.mark.asyncio
+async def test_async_process_host_sets_is_wireless():
+    """async_process_host sets is_wireless field on each host."""
+    coordinator = make_coordinator_for_host(
+        host_entries={
+            "AA:BB:CC:DD:EE:01": {
+                "source": "wireless",
+                "address": "192.168.1.10",
+                "mac-address": "AA:BB:CC:DD:EE:01",
+                "interface": "wlan1",
+                "host-name": "phone",
+                "last-seen": False,
+                "available": True,
+                "manufacturer": "",
+                "is_wireless": False,
+            },
+            "AA:BB:CC:DD:EE:02": {
+                "source": "arp",
+                "address": "192.168.1.11",
+                "mac-address": "AA:BB:CC:DD:EE:02",
+                "interface": "ether1",
+                "host-name": "desktop",
+                "last-seen": False,
+                "available": True,
+                "manufacturer": "",
+                "is_wireless": False,
+            },
+        }
+    )
+
+    await coordinator.async_process_host()
+
+    assert coordinator.ds["host"]["AA:BB:CC:DD:EE:01"]["is_wireless"] is True
+    assert coordinator.ds["host"]["AA:BB:CC:DD:EE:02"]["is_wireless"] is False
+
+
+# ---------------------------------------------------------------------------
+# Group: RouterOS v7 capability detection (_detect_capabilities_v7)
+#   Regression coverage for #68 — a 7.13+ router still running the legacy
+#   `wireless` package must keep CAPsMAN and the /interface/wireless stack.
+# ---------------------------------------------------------------------------
+
+
+def _make_v7_coordinator(minor):
+    coordinator = make_coordinator(major_fw_version=7)
+    coordinator.minor_fw_version = minor
+    coordinator.host = "10.0.0.1"
+    coordinator.support_capsman = False
+    coordinator.support_wireless = False
+    coordinator.support_ppp = False
+    coordinator._wifimodule = "wireless"
+    return coordinator
+
+
+def _pkg(*enabled):
+    return {name: {"enabled": True} for name in enabled}
+
+
+def test_v7_legacy_wireless_package_on_modern_fw_keeps_capsman():
+    """7.21 with the legacy `wireless` package: CAPsMAN on, legacy endpoints."""
+    coordinator = _make_v7_coordinator(21)
+
+    coordinator._detect_capabilities_v7(_pkg("wireless"))
+
+    assert coordinator.support_capsman is True
+    assert coordinator._wifimodule == "wireless"
+    # Pins the #68 regression: the old else-branch line
+    # `support_wireless = bool(minor_fw_version < 13)` lowered this to False
+    # for 7.13+ legacy boxes. _make_v7_coordinator seeds it False, so True
+    # here proves the override is gone — do not re-introduce one.
+    assert coordinator.support_wireless is True
+
+
+def test_v7_wifi_qcom_package_disables_capsman():
+    coordinator = _make_v7_coordinator(13)
+
+    coordinator._detect_capabilities_v7(_pkg("wifi-qcom"))
+
+    assert coordinator.support_capsman is False
+    assert coordinator._wifimodule == "wifi"
+
+
+def test_v7_wifi_qcom_ac_package_disables_capsman():
+    coordinator = _make_v7_coordinator(13)
+
+    coordinator._detect_capabilities_v7(_pkg("wifi-qcom-ac"))
+
+    assert coordinator.support_capsman is False
+    assert coordinator._wifimodule == "wifi"
+
+
+def test_v7_wifiwave2_package_uses_wifiwave2_module():
+    coordinator = _make_v7_coordinator(13)
+
+    coordinator._detect_capabilities_v7(_pkg("wifiwave2"))
+
+    assert coordinator.support_capsman is False
+    assert coordinator._wifimodule == "wifiwave2"
+
+
+def test_v7_modern_fw_without_packages_assumes_builtin_wifi():
+    """7.13+ with no wireless package signals the built-in wifi driver."""
+    coordinator = _make_v7_coordinator(13)
+
+    coordinator._detect_capabilities_v7({})
+
+    assert coordinator.support_capsman is False
+    assert coordinator._wifimodule == "wifi"
+
+
+def test_v7_older_fw_without_packages_uses_legacy_wireless():
+    coordinator = _make_v7_coordinator(5)
+
+    coordinator._detect_capabilities_v7({})
+
+    assert coordinator.support_capsman is True
+    assert coordinator._wifimodule == "wireless"
+
+
+def test_v7_wifi_package_wins_over_legacy_wireless():
+    """A migrating box with both packages prefers the modern wifi stack."""
+    coordinator = _make_v7_coordinator(15)
+
+    coordinator._detect_capabilities_v7(_pkg("wireless", "wifi-qcom"))
+
+    assert coordinator.support_capsman is False
+    assert coordinator._wifimodule == "wifi"
+
+
+def test_has_wifi_package_legacy_wireless_overrides_version_heuristic():
+    coordinator = _make_v7_coordinator(21)
+
+    assert coordinator._has_wifi_package(_pkg("wireless")) is False
+
+
+def test_has_wifi_package_modern_fw_without_packages_is_true():
+    coordinator = _make_v7_coordinator(21)
+
+    assert coordinator._has_wifi_package({}) is True
+
+
+def test_has_wifi_package_explicit_wifi_package_is_true():
+    coordinator = _make_v7_coordinator(5)
+
+    assert coordinator._has_wifi_package(_pkg("wifi")) is True
+
+
+def test_has_wifi_package_disabled_wireless_falls_back_to_version():
+    coordinator = _make_v7_coordinator(21)
+
+    assert coordinator._has_wifi_package({"wireless": {"enabled": False}}) is True

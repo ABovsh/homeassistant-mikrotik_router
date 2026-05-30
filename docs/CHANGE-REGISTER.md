@@ -4,6 +4,219 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260530-tracking-visibility-and-handoff-backfill — document public/private tracking + promote 2 librouteros follow-ups
+
+**Date:** 2026-05-30
+**Branch:** `docs/iss-260526-mikrotik-backfill`
+**Status:** Docs only — no integration code or behaviour change.
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `CLAUDE.md` | New **Tracking visibility (public vs private)** section: integration-facing trackers (`docs/ISSUES.md`, `CHANGE-REGISTER.md`, `FEATURE-POLL.md`, `architecture.md`, `decisions/ADR-*`) are public; sensitive/internal (tokens, MACs, hostnames, captures, session meta) goes in gitignored `docs/internal/`. |
+| `docs/ISSUES.md` | Promoted two follow-ups of `ISS-260512-ci-manifest-drift` from body bullets to their own entries: `ISS-260512-librouteros-concurrency-adr` (Active, High) and `ENH-260512-librouteros-test-matrix` (Backlog, Medium). |
+
+### Why
+
+Part of the cross-repo handoff-gap backfill (config `ISS-260526`) — a one-time sweep promoting un-filed commitments referenced in session handoffs into their owning repo's tracker. The two librouteros follow-ups were named in the 2026-05-12 handoff and listed as bullets under the (now-closed) ci-manifest-drift entry, but never filed as their own trackable entries, so they were invisible to the tracker. Both verified still-live: no concurrency ADR exists (ADR-005 is a narrower lock-context-manager refactor, not the client-ownership/lock-scope/timeout/failure-mode model), and CI has no librouteros version matrix. The CLAUDE.md rule was added because this is a public fork — the public/private split already existed in `.gitignore` but was undocumented.
+
+---
+
+## CR-260525-issue-68-capsman-detection — CAPsMAN disabled for 7.13+ routers on the legacy `wireless` package
+
+**Date:** 2026-05-25
+**Branch:** `claude/modest-einstein-0Ulby`
+**Status:** In Review — pending @fuecy validation on a `dev` pre-release before version bump/tag
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `custom_components/mikrotik_router/coordinator.py` | `_has_wifi_package()` now returns `False` when an enabled legacy `wireless` package is present, *before* the `>=7.13` version heuristic. An explicitly enabled `wifi`/`wifi-qcom`/`wifi-qcom-ac` package still wins first. |
+| `custom_components/mikrotik_router/coordinator.py` | `_detect_capabilities_v7()` else-branch now sets `_wifimodule = "wireless"` explicitly and drops the dead `support_wireless = bool(self.minor_fw_version < 13)` line (a no-op in its only reachable path that, under the corrected routing, would have wrongly disabled wireless support for 7.13+ legacy boxes). |
+| `tests/test_coordinator.py` | New detection test group (11 tests) covering `_detect_capabilities_v7` and `_has_wifi_package` across wifiwave2 / wifi-qcom / wifi-qcom-ac / legacy-wireless-on-7.13+ / no-package-on-7.13+ / no-package-on-7.5 / both-packages, plus the legacy-wireless regression pin. |
+| `docs/ISSUES.md` | New ISS-260525-issue-68-capsman-detection entry; #68 priority note updated. |
+
+### Why
+
+The v2.3.17 dual-endpoint fallback (CR-260523) only runs when `support_capsman` is `True` — it is gated by `_run_if_enabled(self.get_capsman_hosts, requires=self.support_capsman)`. @fuecy is on RouterOS 7.21.4 still running the legacy `wireless` package, so `_has_wifi_package()` returned `True` on the version heuristic alone, setting `support_capsman=False` **and** `_wifimodule="wifi"`. Result: the entire CAPsMAN fetch (and therefore the v2.3.17 fallback) was skipped, and wireless interface enrichment queried the empty `/interface/wifi*` endpoints. His manual `support_capsman=True` patch confirmed the diagnosis but only fixed half — interface enrichment was still mis-routed.
+
+The fix is package-driven: an enabled legacy `wireless` package routes both `support_capsman` and `_wifimodule` to the CAPsMAN-capable `/interface/wireless` path regardless of firmware version. The version heuristic remains the correct fallback for genuine 7.13+ boxes using the built-in wifi driver (no separate `wifi*` package to detect).
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint + `C901` | All checks passed (custom_components + tests) | ✅ |
+| Cognitive complexity | `_detect_capabilities_v7` ≈6, `_has_wifi_package` ≈5 (≤15) | ✅ |
+| Pytest | 235 passed locally (incl. 16 detection tests) | ✅ |
+| coordinator-reviewer | Logic verified across all 6 scenarios; ADR-004/005/006/007/009 clean | ✅ |
+
+### Release ops
+
+Retired the stale `v2.4.0-beta.3` pre-release + git tag (2026-03-27, manifest 2.3.13, commit `3f813ae`). Its headline feature (dispatcher-based device discovery) was subsequently disabled on `dev` pending an entity-guard fix (ISS-260320 reopened), and it carried no commits not already reachable via `dev`. Release page + tag deleted by the maintainer; the `v2.4.0-beta` name is now free for the #59 PoE-energy beta.
+
+**Date:** 2026-05-23
+**Branch:** `feature/issue-68-capsman-interface`
+**Status:** In Review (targeting `dev`)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `custom_components/mikrotik_router/coordinator.py` | `get_capsman_hosts()` rewritten to probe endpoints in preference order via new helpers `_capsman_endpoints_to_probe()` + `_fetch_capsman_table()`. v7.13+ → wifi first, caps-man fallback (closes ENH-260523); v6 / v7 ≤ 12 → caps-man only. First endpoint returning rows wins; transition logged at INFO. Per-endpoint field lists: full payload on `/caps-man/`, conservative 3-field shape on `/interface/wifi/`. `rx-signal` is renamed to `signal-strength` post-`parse_api`. |
+| `custom_components/mikrotik_router/coordinator.py` | `_merge_capsman_hosts()` rewritten as two paths via extracted helpers (`_write_capsman_claim`, `_write_capsman_overlay`, `_copy_capsman_metrics`): new hosts get full claim; existing hosts get a `capsman-interface` overlay + wireless metrics without overwriting `source` or `interface`. Removes the `elif source != "capsman": continue` early-skip that hid the AP identity from any DHCP/ARP/bridge-claimed host. |
+| `custom_components/mikrotik_router/device_tracker_types.py` | `"capsman-interface"` added to `DEVICE_ATTRIBUTES_HOST`. `copy_attrs` omits it on non-capsman hosts since the key is simply absent from their data. |
+| `custom_components/mikrotik_router/manifest.json` | Bump version 2.3.16 → 2.3.17 |
+| `README.md`, `info.md` | v2.3.17 release notes |
+| `docs/decisions/ADR-011-capsman-attributes.md` (new) | Decision record: additive `capsman-interface`, no source flip, no merge-order change. Documents the @fuecy endpoint-mismatch finding and the deferred ENH for endpoint fallback. |
+| `docs/decisions/README.md` | ADR-011 added to index. |
+| `docs/data-schema.md` | New `capsman-interface` field documented on the host composite. |
+| `docs/ISSUES.md` | #68 status updated; new ENH-260523-capsman-endpoint-fallback entry. |
+| `tests/test_coordinator.py` | Extended `test_capsman_hosts_v6` to cover the full v6 payload and the rx-signal → signal-strength rename. Rewrote `test_merge_capsman_hosts_returns_detected` to assert `capsman-interface` is written on the claim path. Replaced `test_merge_capsman_hosts_skips_existing_non_capsman` with the ADR-011 regression test `test_merge_capsman_hosts_overlay_on_dhcp_host` and added `test_merge_capsman_hosts_overlay_updates_availability_for_capsman_source`. |
+
+### Why
+
+Issue #68 (reporter @fuecy): `device_tracker.<mac>.attributes.interface` showed the bridge name, not the AP-virtual interface (`Slaapkamer`, `Zolder`, etc.) for CAPsMAN clients. Independent exploration confirmed (and disproved) the prior feasibility analysis: the bug is NOT merge ordering; it's that `_merge_capsman_hosts()` early-continued for any host already claimed by DHCP/ARP/bridge. Persistent DHCP leases mean DHCP almost always claims first, so the AP identity was never recorded for those hosts.
+
+ADR-011 captures the design — additive attribute, no behavioural changes to `source` / `interface`, preserves automations that filter on them.
+
+### @fuecy's specific case — fixed in this PR via dual-endpoint fallback
+
+The first-pass of this work would have left @fuecy on RouterOS 7.21.4 unfixed because his version routes to `/interface/wifi/registration-table` which his router returns empty. Rather than ship a partial fix and defer ENH-260523-capsman-endpoint-fallback to v2.3.18, the fallback is folded into this PR: `get_capsman_hosts()` probes endpoints in preference order (v7.13+ → wifi → caps-man; v6/v7≤12 → caps-man only) and uses whichever returns data. ENH-260523 is now Closed.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint (E/F/W) | All checks passed (custom_components + tests) | ✅ |
+| Ruff `C901` on custom_components | All checks passed — `_merge_capsman_hosts` and helpers all under complexity 15 | ✅ |
+| Test syntax | `python -m py_compile tests/test_coordinator.py` passes | ✅ |
+| Pytest | Requires Docker on Windows — CI gates it | ⏳ |
+| Manual: live HACS install on a CAPsMAN router | Pending — @fuecy beta after merge | ⏳ |
+
+### Follow-up (not in this PR)
+
+- v7.13+ field schema discovery — the conservative 3-field shape on the wifi endpoint is intentionally minimal until a real payload is observed. We can extend the v7.13+ field list once a user with the new WiFi package shares a `/rest/interface/wifi/registration-table` response.
+- No debug logging was added to this PR (originally planned), so no `dev` → `master` strip step is needed.
+
+---
+
+## CR-260522-claude-tooling-modernisation — Claude Code tooling baseline + mechanical quality gates via pyproject.toml
+
+**Date:** 2026-05-22
+**Branch:** `feature/claude-tooling-modernisation`
+**Status:** In Review (targeting `dev`)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `pyproject.toml` (new) | Single-source-of-truth tool config. `[tool.ruff]` line-length=220, py313, exclude `librouteros_custom`. `[tool.ruff.lint]` select E/F/W/C90, ignore W293. `[tool.ruff.lint.mccabe]` `max-complexity = 15` — mechanical enforcement of ADR-007. `[tool.ruff.lint.per-file-ignores]` C901 disabled for tests. `[tool.pytest.ini_options]` integration marker (moved from setup.cfg). `[tool.coverage.run]` source = custom_components/mikrotik_router. `[tool.coverage.report]` `fail_under = 80` — mechanical enforcement of the 80% target. |
+| `setup.cfg` (deleted) | All config moved to pyproject.toml. Stale `[flake8]` + `[pylint]` blocks (superseded by ruff in ADR-003) eliminated. |
+| `Pipfile` (deleted) | Legacy artifact; no CI/tooling consumed it. |
+| `AGENTS.md` (deleted, was untracked) | Near-duplicate of CLAUDE.md with stale "Codex Sonnet/Opus" branding from earlier toolchain. Removed per gedcom-tree-parser/PLAN.md L498 precedent. |
+| `.claude/settings.json` (new, committed) | Team-shared permission allowlist (read-only Bash wildcards: ruff, pytest, pre-commit, bandit, git read-only ops, jq, manifest read) + hook declarations (PreToolUse, PostToolUse, UserPromptSubmit). Personal overrides remain in gitignored `settings.local.json`. |
+| `.claude/hooks/pre-bash-force-push-guard.sh` (new) | PreToolUse Bash hook. Blocks `git push --force` targeting master/main with exit 2. Dev/feature branches pass through. |
+| `.claude/hooks/post-edit-ruff.sh` (new) | PostToolUse Edit/Write/MultiEdit hook. Runs `ruff check --fix` on Python files immediately after edit. Non-blocking. Tight-feedback-loop pattern per Ultimate Claude Code Guide §9.5. |
+| `.claude/hooks/user-prompt-smart-suggest.sh` (new) | UserPromptSubmit hook. Detects "create PR" intent and surfaces the pre-PR checklist as an inline reminder unless the prompt already references it. Non-blocking. |
+| `.claude/commands/pre-pr-check.md` (new) | Slash command running the full pre-PR sequence: ruff lint+format, pytest with coverage, doc-update checks (CHANGE-REGISTER entry, ISSUES.md updates, ADR if applicable), version-triplet check, PR-target sanity. |
+| `.claude/commands/release-bump.md` (new) | Atomic version bump across manifest.json + README.md + info.md + CHANGE-REGISTER.md staged entry. Mechanises the three-file lockstep that CR-260417 / CR-260507 / CR-260509 repeatedly tripped on. |
+| `.claude/agents/coordinator-reviewer.md` (new) | Specialised review agent (Sonnet) for `coordinator.py` changes. Checks ADR-007 helper-extraction, ADR-009 attribute filtering, lock discipline (ISS-260509), HA async patterns, UID stability, coverage. |
+| `.claude/skills/claude-md-sizing/SKILL.md` (new) | Audit skill encoding the Ultimate Guide's "120 lines hard limit + pointer strategy" rule. CLAUDE.md is currently 48 lines (safe) but will drift as the repo grows. |
+| `docs/decisions/ADR-010-claude-tooling-baseline.md` (new) | Decision record covering all of the above. Index updated in `docs/decisions/README.md`. |
+| `docs/ISSUES.md` | New: ISS-260522-ruff-format-drift (discovered during T2.1 verification — see below). |
+| `.github/workflows/ci.yml` | Pin `ruff==0.9.0` to match `.pre-commit-config.yaml` rev. Added in response to code-review finding: the new C901 complexity gate would otherwise sit on top of unpinned-ruff drift between CI and pre-commit. |
+
+### Why
+
+Quality bars (SonarCloud Grade A, complexity ≤15, ≥80% coverage, zero ruff errors) were documented in CLAUDE.md but enforced *socially* — by reviewer attention. ISS-260512-ci-manifest-drift exposed that "documentation as enforcement" is fragile: the v2.3.14 hotfix shipped untested against the version it was hotfixing because two sources of truth diverged.
+
+This PR converts the documented bars into mechanical gates (pyproject.toml C901 + coverage fail_under), removes three drift surfaces (AGENTS.md duplicate, Pipfile, stale setup.cfg config blocks), and adds Claude-Code-level guardrails (`.claude/` scaffolding per Ultimate Claude Code Guide best practices). The "drift" framing here comes from the user's own audit work (`jnctech/config` audit findings, paraphrased in the sibling `gedcom-tree-parser` project's PLAN.md "Agent discipline" section) — the Ultimate Guide supplied the `.claude/` shape, not the drift philosophy.
+
+### New finding (resolved in-PR)
+
+**ISS-260522-ruff-format-drift** — During T2.1 verification, ruff 0.11.4 reported 26 files in `custom_components/mikrotik_router` + `tests/` needing reformatting. Pre-commit's pinned ruff v0.9.0 *also* wants to reformat them.
+
+**Original hypothesis (incorrect):** the pre-commit `ruff-format` hook was not running on recent commits, so drift accumulated silently.
+
+**Actual cause (discovered when applying the fix):** the drift is the direct consequence of *this PR's* new `pyproject.toml` setting `line-length = 220`. The previous codebase was formatted against ruff's undeclared default (line-length=88), so the wider line-length flags 26 files as "would reformat" — they were never drifted against any prior config. CI on `dev` is format-clean and has been throughout.
+
+**Fix (bundled into this PR):** ran `ruff format` once over `custom_components/` and `tests/`; the reformat is the necessary companion to the line-length config change in the same PR. Style-only; `ruff check` still passes on all 26 files. ISS-260522 closed.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint (`E,F,W,C90`) | All checks passed (custom_components + tests) | ✅ |
+| Ruff `C901` on custom_components | All checks passed — zero functions exceed complexity 15 | ✅ — validates ADR-007 retroactively |
+| Ruff format | 26 files reformatted in-PR (consequence of new `line-length=220`); 39 files clean afterward | ✅ |
+| Pytest | pending — requires Docker test container | ⏳ |
+| Pre-commit | ruff hook passed; ruff-format hook auto-modified files (see ISS-260522) | ⏳ partial |
+
+### Code-review fixes (applied in this PR before merge)
+
+Both review agents (pr-review-toolkit:code-reviewer + independent high-effort sub-agent) ran on the draft and surfaced findings consolidated and addressed in-PR:
+
+- **BLOCKER:** `$ARGUMENTS_0` is not valid Claude Code slash-command syntax (release-bump.md, claude-md-sizing/SKILL.md) → changed to `$1`.
+- **NEEDS-CHANGE:** All three hooks would fail closed if `jq` is missing → added `command -v jq >/dev/null 2>&1 || exit 0` guard before any jq invocation. Force-push guard now fails *open* (lets command through) when jq missing rather than blocking every Bash call.
+- **NEEDS-CHANGE:** `.claude/settings.json` allowlist included destructive git verbs (`checkout:*`, `restore:*`, `switch:*`) which can silently discard uncommitted work → removed, replaced with narrower read-only patterns (`rev-parse`, `ls-files`, `check-ignore`, `branch --show-current`, `branch -a`).
+- **NEEDS-CHANGE:** CI ruff was unpinned; C901 gate would sit on top of version drift → pinned `ruff==0.9.0` in `.github/workflows/ci.yml` matching pre-commit `rev:`.
+- **NIT:** PR-intent regex matched `pr` as a substring (false positives on "project", "presentation") → added `\bpr\b` word boundary.
+- **NIT:** ADR-010 cited specific line numbers in a sibling repo (`gedcom-tree-parser/PLAN.md L498/L508-511`) which would drift → replaced with paraphrased quotes that survive the source file evolving.
+- **NIT:** `docs/ISSUES.md` Current Priorities had duplicate `1.` numbering → renumbered.
+- **DOCUMENTED:** Force-push guard limitation (bare `git push --force` with no ref while on master) added to hook header comment.
+- **DOCUMENTED:** `.gitignore` re-include pattern got an inline comment explaining how to share new `.claude/<dir>/` subdirectories.
+
+### Follow-up (not in this PR)
+
+- (Optional) Run `pre-commit install` locally so the `ruff-format` hook fires on every commit going forward — the post-edit Claude hook already runs `ruff format`, but pre-commit catches non-Claude edits too.
+- Consider Claudeception / Claude Reflect System if PR throughput grows.
+- Consider expanding ruff selected rules (currently E/F/W/C90) to include I (isort), B (bugbear), UP (pyupgrade) — needs validation that current code passes.
+
+---
+
+## CR-260512-ci-manifest-drift-guard — CI installs runtime deps from manifest; add drift + zip-structure guards
+
+**Date:** 2026-05-12
+**Branch:** `fix/ci-manifest-drift-guard`
+**Status:** In Review (targeting `dev`)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `.github/workflows/ci.yml` (tests job) | Replace bare `pip install mac-vendor-lookup librouteros` with `pip install -r /tmp/runtime-requirements.txt` generated from `manifest.json`. CI now installs exactly what HA installs. |
+| `.github/workflows/ci.yml` | New job `manifest-drift` asserts runtime entries in `requirements.txt`, `requirements_dev.txt`, and `requirements_tests.txt` match `manifest.json` exactly. Fails the PR if they diverge. |
+| `.github/workflows/ci.yml` | New job `zip-structure` builds the release zip with the same `cd custom_components/mikrotik_router && zip -r ../../...` command used by `release.yml`, then asserts `manifest.json` is at the zip root (no nested `mikrotik_router/` directory). |
+| `requirements.txt`, `requirements_dev.txt`, `requirements_tests.txt` | Pin `librouteros>=3.4.1,<4.0` to match the manifest cap introduced in v2.3.14. |
+
+### Why
+
+External audit (Codex, 2026-05-12) found that CI was installing `librouteros` unpinned, resolving to `4.0.1`, while `manifest.json` correctly pinned `<4.0` since the v2.3.14 hotfix. The shipped-vs-tested dependency boundary diverged: the integration was shipping on `<4.0` but every CI run since the hotfix had been testing against 4.x. The hotfix itself was effectively shipped untested against the version it was hotfixing.
+
+The drift guard ensures this class of failure cannot silently regress: any change to `manifest.json` requirements without a matching update to all three `requirements*.txt` files now fails CI. The zip-structure guard closes a separate latent risk: HACS root-flat packaging bugs are easy to reintroduce, and `release.yml` had no artefact-shape verification.
+
+### Why this surfaced now
+
+The `<4.0` cap was added in commit b6ad8e0 (v2.3.14, 4 weeks ago) to work around the librouteros 4.0.0/4.0.1 `connect()` kwarg break. The three `requirements*.txt` files were not updated at the same time, and `ci.yml` was using bare unpinned installs predating the cap. The audit identified the inconsistency by reading all four files together.
+
+### Test Plan
+
+- [ ] CI `tests` job log shows `librouteros>=3.4.1,<4.0` in `cat /tmp/runtime-requirements.txt`
+- [ ] `manifest-drift` job passes on this PR
+- [ ] `zip-structure` job lists `manifest.json` near the top of the zip and reports `OK`
+- [ ] Full pytest suite still passes on Python 3.13 and 3.14
+
+### Follow-up (not in this PR)
+
+- ADR documenting the librouteros API concurrency model — see `ISS-260512-librouteros-concurrency-adr`
+- Explicit librouteros version test matrix (`3.4.1`, latest `3.x`, expected-fail `4.x`) before relaxing the `<4.0` cap — see `ENH-260512-librouteros-test-matrix`
+- Cleanup PR: delete `Pipfile`, strip flake8/pylint from `setup.cfg`, move ruff config to `pyproject.toml`
+
+---
+
 ## CR-260509-fix-api-concurrency-lock — v2.3.16: hold API lock around set_value/execute response iteration
 
 **Date:** 2026-05-09
@@ -80,7 +293,7 @@ Both are minimal, low-risk fixes that don't touch shared paths. Bundled into a s
 
 **Date:** 2026-04-17
 **Branch:** `fix/librouteros-4x-pin`
-**Status:** In Review (targeting master)
+**Status:** Released (master, v2.3.14)
 
 ### What Changed
 
@@ -104,6 +317,42 @@ Open a new ISS to migrate to librouteros 4.x: rename `login_methods` → `login_
 ### Quality Gate Results
 
 Docs/config-only change; no code touched. No tests added.
+
+---
+
+## CR-260327-v240-issues — v2.4.0 feature completion (3 issues + SonarCloud)
+
+**Date:** 2026-03-27
+**Branch:** `feature/v240-issues`
+**Status:** In Review (targeting dev)
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | **New device discovery:** `_has_new_uids()` tracks UIDs per data path; dispatcher re-enabled with guard — only fires when new UIDs appear. `_known_uids` dict added to coordinator init. |
+| `entity.py` | **Entity guard fix:** `_check_entity_exists()` now skips entities already in `platform.entities` before attempting `async_add_entities`, preventing duplicate registration errors. |
+| `coordinator.py` | **Wireless detection:** `async_process_host()` sets `is_wireless` bool on each host using `_is_wireless_host()`. Added to `_HOST_DEFAULTS`. |
+| `device_tracker.py` | **Wireless detection:** Replaced 3 `source in ["capsman", "wireless"]` checks with `is_wireless` field — fixes hAP ac2 bridge-discovered wireless clients showing wired behaviour. |
+| `coordinator.py` | **Firewall refactor:** Extracted `_get_firewall_rules()` helper, `_ENABLED_VAL` and `_SKIP_DYNAMIC_JUMP` constants. get_nat/mangle/filter/raw now delegate to shared method. |
+| `coordinator.py` | **SonarCloud:** Extracted `_PPP_NOT_CONNECTED` constant (S1192 "not connected" duplication). |
+| `tests/` | 8 new tests: `_has_new_uids` (6), `async_process_host_sets_is_wireless` (1), bridge wireless tracker behaviour (1). 573 total passing. |
+| `docs/ISSUES.md` | Closed ISS-260320-new-device-discovery, ISS-260320-refactor-dedup, ISS-260326-tracker-wireless-detection |
+
+### Why
+
+Three backlog issues required for v2.4.0 release:
+- ISS-260320-new-device-discovery: New network devices required HA restart to appear. Dispatcher was disabled in v2.3.8 due to log spam.
+- ISS-260326-tracker-wireless-detection: hAP ac2 wireless clients discovered via bridge table were treated as wired (wrong icon, wrong connection logic).
+- ISS-260320-refactor-dedup: Firewall rule methods shared ~30 LOC of boilerplate (parse_api + dedup call).
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint | 0 errors | ✅ |
+| Ruff format | 0 reformats needed | ✅ |
+| Tests | 573 passed, 5 skipped | ✅ |
 
 ---
 

@@ -10,7 +10,12 @@ Monitor and control your MikroTik router from Home Assistant.
 
 ![Mikrotik Logo](https://raw.githubusercontent.com/tomaae/homeassistant-mikrotik_router/master/docs/assets/images/ui/header.png)
 
-### What's new in v2.3.16
+### What's new in v2.3.18
+- **CAPsMAN now works on legacy-wireless routers** — RouterOS 7.13+ devices still running the legacy `wireless` package weren't detecting CAPsMAN wireless clients. Fixed. Addresses #68.
+- **See which AP a wireless client is on** — new `capsman-interface` attribute on device trackers (e.g. `Slaapkamer`), useful for per-room automations. Works even when DHCP/ARP claimed the host first. Existing `interface` / `source` attributes unchanged.
+- Thanks to @fuecy for the diagnostics and clean-install testing.
+
+### v2.3.16
 - **API concurrency fix** — `set_value`/`execute` now hold the API lock around the librouteros response iteration, preventing a race with the 30s coordinator poll that could disconnect the integration on rapid switch toggles. Addresses #64.
 - **HA 2026.5.0 / Python 3.14 not yet validated** — testing planned; see `docs/ISSUES.md`.
 

@@ -2,16 +2,202 @@
 
 ## Current Priorities
 
-1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; rapid switch toggles can corrupt the socket stream and disconnect the integration (#64)
-2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 / Python 3.14 not yet validated against the integration; testing planned
-3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; all users affected (hotfix v2.3.14 pins `<4.0`)
-4. ISS-260320-new-device-discovery — New devices require HA restart to appear
-5. ISS-260320-refactor-dedup — Refactor duplicated patterns
-6. ISS-260326-tracker-wireless-detection — Device tracker uses old wireless detection logic
+1. ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless enrichment disabled for 7.13+ routers still on the legacy `wireless` package (detection gates the v2.3.17 fallback). **In Review in `claude/modest-einstein-0Ulby`; pending @fuecy validation on a `dev` pre-release.**
+2. ISS-260523-issue-68-capsman-interface — CAPsMAN AP-virtual interface not exposed when DHCP/ARP claimed the host first; AND fix for v7.13+ users still on legacy CAPsMAN (empty primary endpoint). **In Progress in `feature/issue-68-capsman-interface` (v2.3.17). Closes ENH-260523-capsman-endpoint-fallback in the same PR.**
+3. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
+4. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
+5. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
+6. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
+7. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
+8. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
+
+(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71.)
 
 ---
 
 ## Active
+
+### ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless disabled for 7.13+ routers on the legacy `wireless` package
+**Type:** Bug
+**Priority:** High
+**Created:** 2026-05-25
+**Status:** 🟡 In Review — fix in `claude/modest-einstein-0Ulby`; awaiting @fuecy validation on a `dev` pre-release
+
+**Symptom:**
+On RouterOS 7.13+ routers still running the legacy `wireless` package (not the new wifi driver), CAPsMAN client data never appears and wireless interface attributes are empty — even after the v2.3.17 dual-endpoint fallback. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy (RouterOS 7.21.4).
+
+**Root cause:**
+`coordinator._has_wifi_package()` returned `True` on the firmware version alone (`major==7 and minor>=13`), so a 7.13+ router still on the legacy `wireless` package was misclassified as a built-in-wifi-driver box. That set `support_capsman=False` — which gates the *entire* CAPsMAN fetch via `_run_if_enabled(self.get_capsman_hosts, requires=self.support_capsman)`, so the v2.3.17 (ISS-260523) endpoint fallback never even ran — **and** `_wifimodule="wifi"`, routing `get_wireless`/`get_wireless_hosts` at the empty `/interface/wifi*` endpoints. @fuecy's manual `support_capsman=True` patch confirmed the diagnosis but only restored CAPsMAN; interface enrichment was still mis-routed.
+
+**Fix (`claude/modest-einstein-0Ulby`):**
+Package-driven detection. `_has_wifi_package()` returns `False` when an enabled legacy `wireless` package is present (before the version heuristic); an explicitly enabled `wifi`/`wifi-qcom`/`wifi-qcom-ac` package still wins first. `_detect_capabilities_v7()` else-branch sets `_wifimodule="wireless"` explicitly. The version heuristic stays as the fallback for genuine 7.13+ boxes with no separate wifi package (built-in driver). 16 detection tests added; reviewed by the coordinator-reviewer agent across all scenarios.
+
+---
+
+### ISS-260523-issue-68-capsman-interface — CAPsMAN AP-virtual interface hidden when DHCP claimed first
+**Type:** Bug
+**Priority:** High
+**Created:** 2026-05-23
+**Status:** 🟡 In Progress — fix in `feature/issue-68-capsman-interface` (v2.3.17)
+
+**Symptom:**
+On a router with CAPsMAN APs (`Slaapkamer`, `Zolder`, etc.) the `interface` attribute on `device_tracker.<wireless-mac>` entities shows the bridge name, not the AP-virtual interface. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy.
+
+**Root cause:**
+`coordinator._merge_capsman_hosts()` (pre-v2.3.17) early-continued whenever an existing host's `source` was already something other than `"capsman"` — i.e. claimed by DHCP/ARP/bridge merges. Routers with persistent DHCP leases see DHCP claim hosts on every poll, so the capsman merge almost always skipped, and the AP-virtual interface was never recorded at all for those hosts.
+
+**Fix (v2.3.17):**
+ADR-011 — add a new additive `capsman-interface` attribute, always written by `_merge_capsman_hosts` regardless of source. Existing `source` / `interface` semantics unchanged.
+
+**Fallback for v7.13+ users on legacy CAPsMAN:** Bundled into the same PR — `get_capsman_hosts` now probes the wifi endpoint first, falls back to `/caps-man/` if the primary returns no rows. Logs the transition at INFO level. See ADR-011 §3.
+
+---
+
+### ENH-260523-capsman-endpoint-fallback — probe both capsman endpoints, not just version-selected one
+**Type:** Enhancement
+**Priority:** Medium
+**Created:** 2026-05-23
+**Status:** 🔴 Closed — shipped in v2.3.17 with `feature/issue-68-capsman-interface`
+
+**Need:**
+`get_capsman_hosts()` picks the endpoint based on `major.minor` firmware version: `/caps-man/registration-table` for ≤7.12, `/interface/wifi/registration-table` for ≥7.13. Some users on RouterOS 7.13+ continue to run legacy CAPsMAN — for them the version-selected wifi endpoint returns an empty list while the legacy endpoint still has their data. Concretely: @fuecy on RouterOS 7.21.4 (#68) reports `/interface/wifi/registration-table` empty and `/caps-man/registration-table` populated.
+
+**Implemented approach (v2.3.17, ADR-011 §3):**
+Endpoints are probed in preference order (v7.13+ → wifi first then caps-man; v6/v7≤12 → caps-man only). First endpoint returning rows wins. The transition is logged at INFO level (`"CAPsMAN endpoint fallback: primary X returned no rows, using Y instead"`) so users can confirm the fallback is firing.
+
+The fallback fires only when the primary returns zero rows; users on the new WiFi package incur no extra API call.
+
+**Tests (v2.3.17):**
+- `test_capsman_hosts_v7_13` — primary returns rows; fallback NOT used; legacy endpoint ignored even if populated.
+- `test_capsman_hosts_v7_13_fallback_to_caps_man` — primary empty; falls back to caps-man; `rx-signal → signal-strength` rename still fires.
+- `test_capsman_hosts_v7_13_both_endpoints_empty` — both empty → empty `capsman_hosts`, no crash.
+- `test_capsman_hosts_v6_does_not_probe_wifi_endpoint` — v6 only probes the legacy endpoint.
+
+---
+
+### ENH-260523-ha-release-watch — scheduled HA release-notes watcher
+**Type:** Enhancement (tooling / ops awareness)
+**Priority:** Low
+**Created:** 2026-05-23
+**Status:** 🟡 Proposed
+
+**Need:**
+HA major/minor releases occasionally introduce changes that affect this integration (see ISS-260509-ha-2026.5-untested — 2026.5.0's Python 3.14 + thread-scheduling changes exposed the v2.3.16 lock race). Currently there is no automated signal that a new HA release has landed; the maintainer learns about it via user issue reports against the new version.
+
+**Proposed shape:**
+A separate `.github/workflows/ha-release-watch.yml` workflow on a `schedule:` cron (e.g. weekly Monday 06:00 UTC) that:
+1. Fetches the HA blog / releases RSS feed.
+2. Diffs against the last-seen version stored as a workflow-readable artefact or a value in `docs/`.
+3. If a new minor/major appears, opens a GitHub issue tagged `ha-compat` with the release notes link and a checklist (entity migrations, deprecated APIs, breaking changes for `local_polling`).
+
+**Why a separate workflow, not in `ci.yml`:**
+CI runs on PRs/pushes, which is the wrong cadence for external-system watching and bloats per-PR time. A separate scheduled workflow keeps the concern isolated and skippable if quota matters.
+
+**Alternative considered:**
+Subscribe to HA RSS in the maintainer's reader / email — zero CI infra, no auditable history. The CI version is preferred if/when this lands because the issues it opens are searchable history for future "when did we know about X" forensics.
+
+**Plan:**
+Spec the workflow file, design the issue-template, decide last-seen storage (workflow artifact vs file). Defer until the maintainer has bandwidth — this is purely additive.
+
+---
+
+### ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots
+**Type:** Enhancement (agent discipline)
+**Priority:** Low
+**Created:** 2026-05-23
+**Status:** 🟡 Proposed
+
+**Need:**
+Conversational drift — the agent and user collaboratively pivot away from the current branch's stated scope onto unrelated tangents ("can we also...", "while we're at it..."), expanding the PR diff and obscuring the original change. The sibling `gedcom-tree-parser` project has documented prompt-engineered discipline for this (PLAN.md "Agent discipline" + "STOP-and-ASK triggers" + "Drift corrective input pattern") but it is enforced socially via prompts, not mechanically via a hook. This repo has no equivalent.
+
+**Proposed shape:**
+A fourth `.claude/hooks/user-prompt-scope-drift.sh` (UserPromptSubmit) that:
+1. Reads the current branch name (`git branch --show-current`).
+2. Reads the corresponding CR entry from `docs/CHANGE-REGISTER.md` for that branch slug — the "What Changed" table establishes scope.
+3. Heuristically checks the user prompt for off-scope intent markers: "also", "while we're at it", "can we", "let's also", "by the way".
+4. If detected AND the prompt does not reference any scope keyword from the CR's "What Changed" rows, surface a one-line inline reminder: "[scope-drift?] Current branch CR scope is X. New ask appears off-scope — capture as ENH-YYMMDD or continue?"
+
+Non-blocking. The user always chooses.
+
+**Why this is hard (and why it's proposed not done):**
+False-positive cost is high — "can we" appears in genuine on-scope follow-ups ("can we also add a test for the C901 check?"). The scope-keyword extraction from the CR entry is fuzzy. A poorly-tuned version of this hook would be more annoying than useful.
+
+**Plan:**
+- Prototype against a recorded session log (e.g. this very session — it drifted into HA release-notes review and scope-drift discussion while finishing CR-260522).
+- Tune the prompt-marker list against false positives.
+- Decide whether the hook fires on every prompt or only after N exchanges in the same session.
+
+---
+
+### ISS-260522-ruff-format-drift — 26 files needed reformat under new `line-length=220`
+**Type:** Bug (process / tooling)
+**Priority:** Medium
+**Created:** 2026-05-22
+**Status:** 🔴 Closed — bundled into PR #71 (CR-260522)
+
+**Symptom:**
+During T2.1 verification of CR-260522, `ruff format --check` reported 26 files in `custom_components/mikrotik_router` + `tests/` as "would reformat". Both local ruff 0.11.4 and pre-commit-pinned ruff v0.9.0 produced the same reformat — no version-skew involved.
+
+**Initial hypothesis (wrong):**
+The pre-commit `ruff-format` hook was silently not running on recent commits, so format drift had been accumulating undetected.
+
+**Actual cause (discovered when applying the fix):**
+The drift is the direct consequence of CR-260522's new `pyproject.toml` setting `[tool.ruff] line-length = 220`. The previous codebase was formatted against ruff's undeclared default (line-length=88); the wider 220-char setting causes ruff to join shorter lines that were previously kept apart. CI on `dev` is and always was format-clean — the "drift" only appears in PR #71's working state because that's where the line-length config lives.
+
+**Fix:**
+Ran `ruff format` once over `custom_components/` and `tests/` on the CR-260522 branch; the 26 reformatted files are committed in the same PR as the config that requires them. `ruff check` continues to pass on every file.
+
+**Why this matters (lesson, not a follow-up):**
+Diagnosing a "drift" symptom by jumping to "the hook must not be running" without isolating the variables (e.g. `git checkout dev && ruff format --check`) wasted some time. When two things change together (new config + drift report), test each in isolation before forming a theory about hook health.
+
+---
+
+### ISS-260512-ci-manifest-drift — CI tested against the wrong librouteros version
+**Type:** Bug (process / supply chain)
+**Priority:** High
+**Created:** 2026-05-12
+**Status:** 🟡 In Progress — fix in `fix/ci-manifest-drift-guard`
+
+**Symptom:**
+External audit found that `.github/workflows/ci.yml` was installing `librouteros` unpinned (`pip install mac-vendor-lookup librouteros`), so CI resolved to whatever PyPI returned — currently `librouteros 4.0.1`. `manifest.json` pins `librouteros>=3.4.1,<4.0` (added in commit b6ad8e0 / v2.3.14 to work around the 4.x `connect()` break). HA therefore installs `<4.0` while every CI run since the hotfix tested against 4.x. The v2.3.14 hotfix was effectively shipped untested against the version it was hotfixing.
+
+**Contributing factors:**
+- `requirements.txt`, `requirements_dev.txt`, `requirements_tests.txt` all left `librouteros>=3.4.1` without an upper bound — even if CI installed from one of them, it would still resolve to 4.x.
+- No CI guard asserts manifest ↔ requirements consistency, so the drift was invisible.
+- `release.yml` builds the zip but no CI job verifies the artefact's HACS root-flat layout — an adjacent latent risk.
+
+**Fix:**
+1. Pin `librouteros>=3.4.1,<4.0` in all three `requirements*.txt`.
+2. CI `tests` job installs from `manifest.json` (the same pattern already proven in the `dependency-audit` job at lines 106–115).
+3. New `manifest-drift` job fails the PR if any `requirements*.txt` diverges from `manifest.json`.
+4. New `zip-structure` job builds the release zip the same way `release.yml` does and asserts `manifest.json` is at the zip root.
+
+**Follow-up (separate work):** now tracked as their own entries —
+- `ISS-260512-librouteros-concurrency-adr` (Active, below)
+- `ENH-260512-librouteros-test-matrix` (Backlog)
+
+---
+
+### ISS-260512-librouteros-concurrency-adr — document the API concurrency model
+**Type:** Documentation (ADR)
+**Priority:** High
+**Created:** 2026-05-12
+**Status:** 🔴 Open
+**Promoted:** 2026-05-30 — was a follow-up bullet under `ISS-260512-ci-manifest-drift`; filed as its own entry (handoff-gap backfill, config `ISS-260526`).
+
+**Description:**
+Write an ADR (model on `docs/decisions/`, ADR-007 shape) documenting the librouteros/API concurrency model that the v2.3.14/15/16 fix sequence exposed as fragile:
+1. **Client ownership** — main and tracker coordinators each own a separate `MikrotikAPI` instance (`coordinator.py:146` and `:297`).
+2. **Lock scope** — `threading.Lock` in `mikrotikapi.py`, held around all API path operations including the response iteration (post-v2.3.16), shared by service calls / switches / buttons / main poll on the main client.
+3. **Timeouts** — current constructor values in `mikrotikapi.py`.
+4. **Latency under load** — 10× interfaces, large DHCP lease tables, bridge hosts, wireless registrations.
+5. **Failure mode** — when librouteros raises mid-response (the v2.3.14/15/16 history is the case study).
+
+Land as a doc-only PR to `dev`; add a `CR-260512-…-concurrency-adr` entry and resolve to Done on merge.
+
+**Related:** `ISS-260512-ci-manifest-drift` (parent), `ISS-260509-mikrotikapi-concurrency` (the lock fix this documents), `ADR-005-lock-context-managers`.
+
+---
 
 ### ISS-260509-mikrotikapi-concurrency — set_value/execute corrupt socket under rapid use
 **Type:** Bug
@@ -43,9 +229,9 @@ The race has existed since the current `set_value`/`execute` shape was introduce
 HA 2026.5.0 (released 2026-05-06) is the first version where a user (#64) has reported the integration breaking. HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime alone isn't a sufficient explanation — the race in `set_value`/`execute` was present in 2026.3 and 2026.4 too without prior reports. The integration's CI matrix and local dev environment still target Python 3.13.
 
 **Plan:**
-- Add Python 3.14 to the CI matrix for the test job
-- Validate the integration manually against HA 2026.5.0 (PoE switching, device tracker, sensors, services)
-- Diff HA 2026.4 → 2026.5 release notes / commits for service-dispatch or executor-pool changes that could explain why #64 surfaced now
+- ✅ Add Python 3.14 to the CI matrix for the test job (done in `chore/sync-v2316-to-dev`)
+- 🟡 Validate the integration manually against HA 2026.5.0 (PoE switching, device tracker, sensors, services) — **awaiting hardware/HA instance access**
+- 🟡 Diff HA 2026.4 → 2026.5 release notes / commits for service-dispatch or executor-pool changes — **2026.5 release notes searched: no executor or service-dispatch changes called out (notable items were `serialx` migration, entity-ID domain matching, doorbell event standardization, infrared platform); will need to grep HA repo commits between 2026.4 and 2026.5 tags for `executor`, `async_add_executor_job`, `service_call`, `WebSocket` if #64 reproduces on v2.3.16**
 - Document any 2026.5.0-specific behaviour in README compatibility notes
 
 ---
@@ -117,35 +303,20 @@ librouteros 4.0.1 renamed the `connect()` keyword argument `login_methods` → `
 
 ### ISS-260320-new-device-discovery — New devices require HA restart to appear
 **Type:** Feature
-**Priority:** High
-**Created:** 2026-03-20
-**Status:** 🟡 Backlog
-**Source:** coordinator.py line 692, entity.py lines 154-168
-
-**Context:**
-The `update_sensors` dispatcher was re-enabled in v2.3.6 to fix new devices not appearing, but it caused thousands of "does not generate unique IDs" log errors every 30s because `_check_entity_exists()` doesn't guard against re-adding existing entities. Reverted in v2.3.8.
-
-**Remaining:**
-- Track previously seen UIDs per data path in the coordinator (e.g. `self._known_uids["host"]`)
-- Only fire `async_dispatcher_send("update_sensors", self)` when new UIDs appear that weren't in the previous set
-- Alternatively, fix `_check_entity_exists()` to skip entities already in `platform.entities`
-- Test: add a new host to `ds["host"]` mid-run and verify entity is created without log errors
-
----
-
-### ISS-260320-refactor-dedup — Refactor duplicated patterns
-**Type:** Refactoring
 **Priority:** Medium
 **Created:** 2026-03-20
-**Status:** 🟡 Backlog
+**Status:** 🟡 In Progress — UID tracking infrastructure done, dispatcher disabled pending entity guard fix
+
+**Done:**
+- ✅ `_check_new_uids()` tracks UIDs per entity-relevant data path (`_ENTITY_UID_PATHS`)
+- ✅ `_check_entity_exists()` guard improved (early return if entity_id in platform.entities)
+- ✅ device_tracker callback ignores dispatches from main coordinator
+- ✅ First-run skip prevents redundant entity setup during startup
 
 **Remaining:**
-- coordinator.py: extract firewall rule dedup helper (get_nat/get_mangle/get_filter share ~75 LOC pattern)
-- switch.py: extract base class for NAT/Mangle/Filter/Queue UID lookup (~50 LOC)
-- ~~apiparser.py: extract shared path traversal from from_entry/from_entry_bool~~ ✅ Done in PR #30
-- *_types.py: extract shared entity description base class (~80 LOC)
-
-**Reference:** SonarCloud CPD exclusions already cover sensor_types.py and coordinator.py intentional repetition
+- Harden entity guard: `async_add_entities` still causes "does not generate unique IDs" when called for existing entities even with the guard. Investigate HA's `EntityPlatform.entities` dict timing.
+- Re-enable dispatcher once guard is validated in live environment
+- Test: add new host mid-run, verify entity created without log errors
 
 ---
 
@@ -155,7 +326,7 @@ The `update_sensors` dispatcher was re-enabled in v2.3.6 to fix new devices not 
 **Type:** Bug
 **Priority:** Medium
 **Created:** 2026-03-26
-**Status:** 🟡 Backlog
+**Status:** 🔴 Closed — fixed in feature/v240-issues
 
 **Context:**
 `device_tracker.py` lines 157, 169, 199 check `source in ["capsman", "wireless"]` to determine wireless behavior (connection state, icon, attributes). The new `_is_wireless_host()` method in coordinator.py correctly detects wireless clients via bridge host table (fixing hAP ac2), but device_tracker still uses the old check.
@@ -172,7 +343,29 @@ On routers with empty registration tables (hAP ac2 with new WiFi package), wirel
 
 ---
 
+### ENH-260512-librouteros-test-matrix — explicit librouteros version test matrix
+**Type:** Enhancement (CI)
+**Priority:** Medium
+**Created:** 2026-05-12
+**Status:** 🔴 Open
+**Promoted:** 2026-05-30 — was a follow-up bullet under `ISS-260512-ci-manifest-drift`; filed as its own entry (handoff-gap backfill, config `ISS-260526`).
+
+**Need:**
+Explicit CI jobs covering librouteros `3.4.1`, latest `3.x`, and expected-fail `4.x`. Needed before the `manifest.json` `<4.0` cap can be relaxed — the cap exists because 4.0.1 broke `connect()`. The matrix turns the compatibility boundary into an asserted CI fact rather than a manual pin watched by hand.
+
+**Related:** `ISS-260512-ci-manifest-drift` (parent), `ISS-260417-librouteros-4x-break` (the 4.x break the cap guards).
+
+---
+
 ## Completed
+
+### ISS-260320-new-device-discovery — New devices require HA restart to appear
+**Type:** Feature | **Priority:** High | **Created:** 2026-03-20
+**Status:** 🟡 Partially done — UID tracking in place, dispatcher disabled pending entity guard hardening
+
+### ISS-260320-refactor-dedup — Refactor duplicated patterns
+**Type:** Refactoring | **Priority:** Medium | **Created:** 2026-03-20
+**Status:** 🔴 Closed — firewall helper extracted (feature/v240-issues), switch toggle extracted (PR #51), apiparser extracted (PR #30). Entity description mixin deferred.
 
 ### ISS-260320-test-coverage — Increase test coverage to ≥80%
 **Type:** Testing | **Priority:** High | **Created:** 2026-03-20

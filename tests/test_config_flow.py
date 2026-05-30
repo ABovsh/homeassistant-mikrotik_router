@@ -62,9 +62,7 @@ def _mock_api(connect_return=True, error=""):
 
 async def test_flow_user_init(hass):
     """Test the user config flow shows the form."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["step_id"] == "user"
@@ -73,13 +71,21 @@ async def test_flow_user_init(hass):
 
 async def test_flow_user_creates_entry(hass):
     """Test a successful user config flow creates an entry."""
-    with patch(
-        "custom_components.mikrotik_router.config_flow.MikrotikAPI",
-        return_value=_mock_api(connect_return=True),
+    # Patch both import sites: config_flow uses MikrotikAPI for the credential
+    # check, and coordinator instantiates it during async_setup_entry that HA
+    # runs after CREATE_ENTRY. Without the coordinator patch the real
+    # librouteros.connect() reaches the socket layer (HASocketBlockedError).
+    with (
+        patch(
+            "custom_components.mikrotik_router.config_flow.MikrotikAPI",
+            return_value=_mock_api(connect_return=True),
+        ),
+        patch(
+            "custom_components.mikrotik_router.coordinator.MikrotikAPI",
+            return_value=_mock_api(connect_return=True),
+        ),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "Mikrotik"
@@ -92,9 +98,7 @@ async def test_flow_user_connection_error(hass):
         "custom_components.mikrotik_router.config_flow.MikrotikAPI",
         return_value=_mock_api(connect_return=False, error="cannot_connect"),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {CONF_HOST: "cannot_connect"}
@@ -106,9 +110,7 @@ async def test_flow_user_wrong_login(hass):
         "custom_components.mikrotik_router.config_flow.MikrotikAPI",
         return_value=_mock_api(connect_return=False, error="wrong_login"),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {CONF_HOST: "wrong_login"}
@@ -120,9 +122,7 @@ async def test_flow_user_ssl_error(hass):
         "custom_components.mikrotik_router.config_flow.MikrotikAPI",
         return_value=_mock_api(connect_return=False, error="ssl_handshake_failure"),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {CONF_HOST: "ssl_handshake_failure"}
@@ -142,9 +142,7 @@ async def test_flow_user_duplicate_name(hass):
         "custom_components.mikrotik_router.config_flow.MikrotikAPI",
         return_value=_mock_api(connect_return=True),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.FORM
     assert result["errors"] == {"base": "name_exists"}
@@ -152,13 +150,17 @@ async def test_flow_user_duplicate_name(hass):
 
 async def test_flow_import(hass):
     """Test the import step delegates to user step."""
-    with patch(
-        "custom_components.mikrotik_router.config_flow.MikrotikAPI",
-        return_value=_mock_api(connect_return=True),
+    with (
+        patch(
+            "custom_components.mikrotik_router.config_flow.MikrotikAPI",
+            return_value=_mock_api(connect_return=True),
+        ),
+        patch(
+            "custom_components.mikrotik_router.coordinator.MikrotikAPI",
+            return_value=_mock_api(connect_return=True),
+        ),
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "import"}, data=MOCK_USER_INPUT
-        )
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "import"}, data=MOCK_USER_INPUT)
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["title"] == "Mikrotik"

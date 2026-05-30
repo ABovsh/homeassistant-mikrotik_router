@@ -21,7 +21,17 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
-## What's New — v2.3.16
+## What's New — v2.3.18
+
+CAPsMAN now works on RouterOS 7.13+ devices that still run the legacy `wireless` package. Wireless clients on those setups weren't being detected before; they are now.
+
+- New `capsman-interface` attribute on device trackers shows which access point a wireless client is connected to (for example `Slaapkamer` or `Zolder`), useful for per-room automations.
+- Fixed CAPsMAN detection on 7.13+ routers running the legacy wireless package.
+- Internal CI and tooling changes, no user-facing impact.
+
+Thanks to @fuecy for the diagnostics and clean-install testing. Technical detail in [ADR-011](docs/decisions/ADR-011-capsman-attributes.md).
+
+## v2.3.16
 
 **Concurrency fix for rapid switch toggles** — `set_value()` and `execute()` in `mikrotikapi.py` were iterating the librouteros response object (which performs additional socket reads) **outside** the API lock. Under workloads that toggle switches rapidly, this could race with the 30s coordinator poll and corrupt the librouteros sentence stream, triggering `ValueError: not enough values to unpack` followed by a full coordinator disconnect. Both methods now hold the lock for the entire response lifecycle, matching the pattern `run_script()` was already using. Addresses [#64](https://github.com/jnctech/homeassistant-mikrotik_router/issues/64).
 
