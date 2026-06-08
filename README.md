@@ -299,6 +299,48 @@ Enable **PoE port sensors** in the integration options to add the following diag
 
 > **Note:** PoE port sensors are opt-in. Enable them under **Settings → Devices & Services → Mikrotik Router → Configure → PoE port sensors**. Voltage, current and power sensors are automatically hidden on hardware that does not report those measurements. Implements [upstream feature request #259](https://github.com/tomaae/homeassistant-mikrotik_router/issues/259).
 
+### Adding PoE energy to the Energy Dashboard
+
+The integration exposes instantaneous power (W) per PoE port, not accumulated energy (kWh). Home Assistant's built-in **Integration helper** (Riemann sum) converts power to energy and produces an Energy-Dashboard-compatible counter that survives restarts. Native PoE energy sensors are tracked as a future enhancement (see issue [#59](https://github.com/jnctech/homeassistant-mikrotik_router/issues/59)) — until then, the helper-based approach is the recommended path.
+
+**Per-port energy sensor — UI setup**
+
+1. Make sure PoE port sensors are enabled (see note above) so `sensor.<router>_poe_out_power` exists for each port.
+2. Go to **Settings → Devices & Services → Helpers → Create helper → Integration - Riemann sum integral sensor**.
+3. Configure:
+   - **Name:** `Ether1 PoE energy` (or similar — pick something stable, the entity ID is derived from this)
+   - **Input sensor:** the PoE out power sensor for that port (e.g. `sensor.rb5009_ether1_poe_out_power`)
+   - **Integration method:** `Trapezoidal` (best accuracy for sampled data)
+   - **Metric prefix:** `kilo` (so the unit becomes kWh, which the Energy Dashboard expects)
+   - **Time unit:** `Hours`
+   - **Max sub-interval:** leave blank
+4. Repeat for each PoE port you want to track.
+5. **Settings → Dashboards → Energy → Add device → Individual devices** and select each new helper sensor. Within an hour the Energy Dashboard will start showing per-port energy.
+
+**Total PoE energy sensor — YAML**
+
+For a single sum-across-all-ports sensor, add a template sensor in `configuration.yaml`:
+
+```yaml
+template:
+  - sensor:
+      - name: "Total PoE energy"
+        unique_id: total_poe_energy
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        state: >
+          {{ (
+            states('sensor.rb5009_ether1_poe_energy') | float(0) +
+            states('sensor.rb5009_ether2_poe_energy') | float(0) +
+            states('sensor.rb5009_ether3_poe_energy') | float(0)
+          ) | round(3) }}
+```
+
+Replace the entity IDs with your actual helper sensors. Reload the template integration (or restart HA) to pick up the new sensor, then add it to the Energy Dashboard the same way.
+
+> **Notes:** The Riemann helper samples at the integration's coordinator interval (~30 s), so accuracy is roughly ±5% versus a continuously-integrated meter — fine for trend visualisation. Helper-based sensors persist correctly across HA restarts. If the integration coordinator disconnects from the router, the helper holds the last value (no spurious counter resets) and resumes on reconnection.
+
 ### PoE-In sensors (system)
 For MikroTik devices powered via PoE, the following sensors appear automatically under the System device when the hardware reports them — no opt-in required:
 

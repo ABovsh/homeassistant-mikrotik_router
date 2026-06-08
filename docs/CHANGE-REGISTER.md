@@ -4,6 +4,34 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260608-sync-master-to-dev — reconcile diverged branches + document the sync model
+
+**Date:** 2026-06-08
+**Branch:** `chore/sync-master-to-dev` → PR to `dev`
+**Status:** In Review
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| (merge) | `master → dev` reconciliation merge. Code trees were already content-identical; the merge brings only the `README.md` PoE-energy guide and re-establishes shared history. |
+| `CLAUDE.md` | New § Branch Strategy sync rule: keep `dev ⊇ master`, back-merge with real merges, never parallel "dev parity" commits. |
+| `docs/ISSUES.md` | New `ISS-260608-dev-master-divergence` (root cause + resolution + going-forward rule). |
+
+### Why
+
+`git merge-base --is-ancestor origin/master origin/dev` was **false** — `master` showed "4 ahead" of `dev` despite content-identical code, because the v2.3.18 release line was applied to `dev` as parallel commits (different SHAs) rather than merged. Left unfixed, every feature branch faces an ambiguous base and noisy PRs. This resets the baseline and documents the model so it doesn't recur.
+
+### Quality Gate
+
+| Metric | Value |
+|--------|-------|
+| Merge conflicts | None (only `README.md` auto-merged) |
+| Code/test tree delta vs master | 0 (identical) |
+| Tests | Unchanged — no code touched; merge is docs-only over identical code |
+
+---
+
 ## CR-260530-tracking-visibility-and-handoff-backfill — document public/private tracking + promote 2 librouteros follow-ups
 
 **Date:** 2026-05-30
