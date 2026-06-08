@@ -1684,6 +1684,53 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if "uptime_epoch" in self.ds["resource"]:
             self.rebootcheck = self.ds["resource"]["uptime_epoch"]
 
+        self._parse_fw_version_from_resource()
+
+    # ---------------------------
+    #   _parse_fw_version_from_resource
+    # ---------------------------
+    def _parse_fw_version_from_resource(self) -> None:
+        """Parse current firmware version from /system/resource.version.
+
+        The current installed version is read-accessible to any user with the
+        `read` policy bit (no write/policy/reboot required). Running this after
+        get_system_resource() populates self.ds["resource"] ensures
+        major_fw_version is set in time for get_capabilities() to dispatch
+        correctly, even when get_firmware_update() short-circuits on its
+        permission gate (read-only service users).
+
+        Skips if major_fw_version is already non-zero. For users with the full
+        permission set, get_firmware_update() runs first in the hwinfo refresh
+        order and is authoritative; on subsequent normal polling cycles (where
+        only get_system_resource runs) the early-return defends against
+        re-parsing a value already set in a prior cycle — major_fw_version is
+        sticky across cycles once populated.
+        """
+        if self.major_fw_version > 0:
+            return
+        full_version = self.ds["resource"].get("version")
+        if not full_version or full_version == "unknown":
+            return
+        try:
+            version = re.sub("[^0-9\\.]", "", full_version.split()[0])
+            version_parts = version.split(".")
+            self.major_fw_version = int(version_parts[0])
+            self.minor_fw_version = int(version_parts[1]) if len(version_parts) > 1 else 0
+            _LOGGER.debug(
+                "Mikrotik %s FW version major=%s minor=%s (%s; from /system/resource)",
+                self.host,
+                self.major_fw_version,
+                self.minor_fw_version,
+                full_version,
+            )
+        except (ValueError, IndexError) as e:
+            _LOGGER.warning(
+                "Mikrotik %s unable to determine FW version from '%s' (%s); capability detection may be incomplete until next successful parse",
+                self.host,
+                full_version,
+                e,
+            )
+
     # ---------------------------
     #   get_firmware_update
     # ---------------------------
