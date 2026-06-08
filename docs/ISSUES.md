@@ -17,6 +17,23 @@
 
 ## Active
 
+### ISS-260608-dev-master-divergence — `dev` and `master` synced by parallel commits, not merges
+**Type:** Process / repo hygiene
+**Priority:** Medium
+**Created:** 2026-06-08
+**Status:** 🟢 Reconciled on `chore/sync-master-to-dev` (PR to `dev`); going-forward rule added to CLAUDE.md
+
+**Symptom:**
+`git merge-base --is-ancestor origin/master origin/dev` returned **false** — `master` appeared "4 commits ahead" of `dev` even though the *code trees were content-identical* (only `README.md` differed by the PoE-energy guide). The 4 commits were patch-duplicates already on `dev` under different SHAs (e.g. `b98b7e2 fix(ci): lock-threads` vs `f71da08 …(dev parity)`; `1877bb5 Release v2.3.18` vs `4adda71`).
+
+**Root cause:**
+master↔dev were kept in sync by **re-applying changes as parallel commits** (`…(dev parity)`, duplicate release commits) instead of true merges, so git never recorded shared history and the branches drift permanently. This makes feature branching ambiguous (which base?) and PRs noisy (a master-based branch rebased onto dev drags master-only commits along).
+
+**Resolution:**
+One-time `master → dev` reconciliation merge (`chore/sync-master-to-dev`) — clean, brought only the README PoE guide. Going forward: features → `dev` → `master`; releases cut by **merging** `dev → master`; any hotfix landing on `master` first is **back-merged to `dev` with a real merge commit** so `dev ⊇ master` always holds. Rule documented in CLAUDE.md § Branch Strategy.
+
+---
+
 ### ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless disabled for 7.13+ routers on the legacy `wireless` package
 **Type:** Bug
 **Priority:** High

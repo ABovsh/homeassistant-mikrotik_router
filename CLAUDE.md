@@ -44,6 +44,7 @@ See [Quality Gates](docs/quality-gates.md) for full checklist. Key additions vs 
 - **Branches:** `master` (main), `dev`, `feature/<desc>`, `fix/<desc>`
 - **Commits:** Conventional (`fix:`, `feat:`, `docs:`, `refactor:`, `chore:`)
 - **PR target:** jnctech fork, never upstream unless explicitly told
+- **Sync model (keep `dev ⊇ master`):** features → `dev` → `master`; cut releases by **merging** `dev → master`. If a hotfix lands on `master` first, **back-merge `master → dev` with a real merge commit** — never re-apply the same change as a parallel "dev parity" commit (that manufactures permanent divergence; see ISS-260608). Invariant: `git merge-base --is-ancestor origin/master origin/dev` is always true.
 
 ## Tracking visibility (public vs private)
 
