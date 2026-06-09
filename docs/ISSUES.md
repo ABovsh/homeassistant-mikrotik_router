@@ -128,7 +128,7 @@ In the environment sensor's value path, return `None` (or set unavailable) when 
 **Type:** Enhancement (test quality)
 **Priority:** **High — pre-release deliverable** (maintainer 2026-06-08: must land before the next release)
 **Created:** 2026-06-08
-**Status:** 🟡 In Progress — `test_sensor.py` done as the reference; new tests written spec'd from now on; remaining modules to follow
+**Status:** 🟡 In Progress — reference (`test_sensor.py`) + real-typed description factory done. **Direction update (ADR-014, 2026-06-09):** the entity-surface layer moves to **L1 entity-golden tests** (syrupy over a mocked API boundary); the `make_mock_coordinator → spec=` coordinator-factory pass is now **optional** (goldens supersede it). The build is tracked by ADR-014's implementation plan and is the next-session focus.
 
 The suite leans on unspecced `MagicMock` (yes-man) coordinators/descriptions, near-zero `parametrize`, and assertions on internal representation rather than behaviour. Migrate each module to: `spec=`/real-type mocks (typos/renames fail), `@pytest.mark.parametrize` for data-driven cases, fixtures for shared arrange, and input→output assertions. Full findings: `docs/internal/test-suite-review-2026-06-08.md`.
 
@@ -137,8 +137,9 @@ The suite leans on unspecced `MagicMock` (yes-man) coordinators/descriptions, ne
 - [x] `test_sensor.py` — reference implementation (`feature/test-sensor-exemplar`, CR-260608-test-sensor-exemplar)
 - [x] new ADR-013 tests written spec'd (real description dataclass; behaviour assertions) — `feature/entity-naming`
 - [x] `conftest.py::make_mock_entity_description` — now builds the **real** `Mikrotik*EntityDescription` per platform (8 sites / 6 modules) so renamed/removed fields fail (`test/spec-entity-description`). Surfaced + fixed the switch/update tests building sensor-typed descriptions.
-- [ ] `conftest.py::make_mock_coordinator` — add `spec=MikrotikCoordinator` (**96 sites / 7 modules** — the big one; will surface yes-man passes; own PR)
-- [ ] remaining: T1 fw-version decoupling, T4 parametrize clusters, T6 fixtures, T3 `make_coordinator` `object.__new__` (last)
+- [ ] **Goldens build — implement ADR-014** (the durable target): syrupy wiring → `setup_integration` fixture → deterministic per-path `MockMikrotikAPI` fixtures (make-or-break) → sensor exemplar → expand per platform → drop `sonar-project.properties` platform exclusions → portable `config/docs/templates/hacs-testing/` template. **Next-session focus.**
+- [ ] (OPTIONAL — superseded by ADR-014 goldens) `conftest.py::make_mock_coordinator` `spec=MikrotikCoordinator` bridge; do only as a quick win before goldens land
+- [ ] remaining (orthogonal): T4 parametrize clusters, T6 fixtures, T3 `make_coordinator` `object.__new__`
 
 ---
 
