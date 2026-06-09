@@ -21,10 +21,10 @@
 
 ## Current Priorities
 
-1. ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless enrichment disabled for 7.13+ routers still on the legacy `wireless` package (detection gates the v2.3.17 fallback). **In Review in `claude/modest-einstein-0Ulby`; pending @fuecy validation on a `dev` pre-release.**
-2. ISS-260523-issue-68-capsman-interface — CAPsMAN AP-virtual interface not exposed when DHCP/ARP claimed the host first; AND fix for v7.13+ users still on legacy CAPsMAN (empty primary endpoint). **In Progress in `feature/issue-68-capsman-interface` (v2.3.17). Closes ENH-260523-capsman-endpoint-fallback in the same PR.**
+1. ISS-260525-issue-68-capsman-detection — **🟢 Shipped in v2.3.18** (#77, "CAPsMAN on legacy-wireless 7.13+ routers"). Orphaned branches `claude/modest-einstein-0Ulby` / `feature/issue-68-capsman-interface` — prune.
+2. ISS-260523-issue-68-capsman-interface — **🟢 Shipped** — `capsman-interface` attribute (ADR-011) is in the released integration. Low-priority refinement (prefer bridge name when a bridge-host row exists) open as [#76](https://github.com/jnctech/homeassistant-mikrotik_router/issues/76).
 3. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
-4. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
+4. ISS-260509-ha-2026.5-untested — **🔴 Closed** — indirectly resolved via the v2.3.16 concurrency fix (#64/#65); integration runs on HA 2026.x / py3.14 (live box + CI matrix) with no 2026.5-specific regression.
 5. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
 6. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
 7. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
@@ -40,7 +40,7 @@
 **Type:** Bug
 **Priority:** Medium
 **Created:** 2026-06-08
-**Status:** 🟡 In Review — fix in `fix/fw-version-silent-fallthrough` → `dev` (CR-260608-fw-version-silent-fallthrough)
+**Status:** 🟢 Merged to `dev` (PR #97); shipped in **v2.3.19-beta.2** (CR-260608-fw-version-silent-fallthrough). Folds into stable v2.3.19.
 
 **Symptom:**
 When `major_fw_version` is `0`, three version-gated coordinator methods silently did nothing with no diagnostic log: `get_capabilities` (capability detection skipped → `support_*` flags left at defaults), `_async_update_client_traffic` (client-traffic collection skipped), and `get_system_health` (health skipped). For read-only accounts this is a persistent state, so capsman/wireless/ppp sensors and client-traffic could be silently absent.
@@ -59,7 +59,7 @@ Add an explicit `else:` to each chain that logs at **DEBUG** ("firmware version 
 **Type:** Bug
 **Priority:** High
 **Created:** 2026-06-08
-**Status:** 🟢 Core fix MERGED to `dev` (PR [#81](https://github.com/jnctech/homeassistant-mikrotik_router/pull/81), @ahharvey, merge `3b14465`). Maintainer hardening (tests + log + docs) In Review in `fix/issue-82-hardening` → `dev`. Ships in the rolled `v2.3.19` release.
+**Status:** 🟢 MERGED to `dev` — core fix [#81](https://github.com/jnctech/homeassistant-mikrotik_router/pull/81) (@ahharvey, `3b14465`) + maintainer hardening #98. Shipped in **v2.3.19-beta.2**; awaiting @ahharvey validation (wifi-qcom read-only) before closing [#82](https://github.com/jnctech/homeassistant-mikrotik_router/issues/82).
 
 **Symptom:**
 On RouterOS 7.x, an integration user without `write`/`policy`/`reboot` permissions silently gets no wireless / CAPsMAN / PPP / per-client-traffic data — e.g. `sensor._wireless_clients` reads `0` with clients connected, and `wifi-qcom` routers are queried on the non-existent `/interface/wireless` endpoint (`400 "no such command or directory (wireless)"`). Reported in [#82](https://github.com/jnctech/homeassistant-mikrotik_router/issues/82) by @ahharvey (hAP ax³ / wifi-qcom, RouterOS 7.22.3).
@@ -402,7 +402,7 @@ The race has existed since the current `set_value`/`execute` shape was introduce
 **Type:** Compatibility
 **Priority:** Medium
 **Created:** 2026-05-09
-**Status:** 🟡 Backlog
+**Status:** 🔴 Closed — indirectly resolved. This was a byproduct of diagnosing #64: the "2026.5 breaks the integration" symptom was the `set_value`/`execute` concurrency race (a long-standing bug exposed by py3.14 thread scheduling), **diagnosed and fixed in v2.3.16** (#65) — not a 2026.5-specific incompatibility. Since then the integration runs on HA 2026.x / py3.14 on the live box (v2.3.18) and the **full CI matrix runs py3.13 + py3.14** on every PR with no 2026.5-specific regression. No separate manual-validation deliverable remains; future HA-release regressions are covered by ongoing CI + user reports (proactive watching tracked separately as ENH-260523-ha-release-watch).
 
 **Context:**
 HA 2026.5.0 (released 2026-05-06) is the first version where a user (#64) has reported the integration breaking. HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime alone isn't a sufficient explanation — the race in `set_value`/`execute` was present in 2026.3 and 2026.4 too without prior reports. The integration's CI matrix and local dev environment still target Python 3.13.
@@ -477,6 +477,8 @@ librouteros 4.0.1 renamed the `connect()` keyword argument `login_methods` → `
 - Rename kwarg in `mikrotikapi.py` to `login_method`
 - Audit remaining librouteros 4.0.1 breaking changes
 - Bump floor to `>=4.0`, drop upper bound
+
+**Salvage (circle-back, 2026-06-08):** a migration plan + upstream-engagement notes were drafted on the **retained** branch `claude/review-engagement-requests-dIZVx` (it carries a *stale* `ADR-010-librouteros-4x-migration` — ADR-010 is now claude-tooling-baseline, so renumber on salvage). When this work starts: lift the plan into a correctly-numbered ADR, then drop the `<4.0` cap behind a librouteros version test matrix (`ENH-260512-librouteros-test-matrix`).
 
 ---
 
