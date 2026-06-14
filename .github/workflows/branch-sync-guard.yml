@@ -1,0 +1,59 @@
+name: Branch sync guard
+
+# Enforces the branch model: dev is the integration branch; master is release-only.
+# Invariant: master is always an ancestor of dev (dev ⊇ master). This catches the
+# drift that previously required manual "reconcile dev with master" steps — a commit
+# landing on master that isn't on dev, or a non-fast-forward release merge.
+# See docs/quality-gates.md "Branch model".
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 6 * * *"  # nightly drift catch
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ancestry:
+    name: master is an ancestor of dev
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          fetch-depth: 0
+      - name: Assert master ⊆ dev
+        run: |
+          git fetch origin master dev --quiet
+          if git merge-base --is-ancestor origin/master origin/dev; then
+            echo "OK: origin/master is an ancestor of origin/dev (dev ⊇ master)."
+          else
+            echo "::error::master has commits not on dev. Back-merge into dev (git checkout dev && git merge origin/master) so dev ⊇ master, then push."
+            echo "Commits on master but not on dev:"
+            git --no-pager log --oneline origin/dev..origin/master
+            exit 1
+          fi
+
+  pr-target:
+    name: PRs to master must come from dev
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Assert head ref is dev
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" = "dev" ]; then
+            echo "OK: PR to master originates from dev."
+          else
+            echo "::error::PRs to master must come from 'dev' (got '$HEAD_REF'). Feature work targets dev; master advances only via a dev -> master release (fast-forward)."
+            exit 1
+          fi

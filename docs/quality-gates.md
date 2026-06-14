@@ -1,5 +1,17 @@
 # Quality Gates
 
+## Branch model
+
+- **`dev`** — the integration branch. **All** PRs target `dev`.
+- **`master`** — release-only. It advances **solely** via a `dev → master` **fast-forward** at release time, and the release is tagged on `master`.
+- **Invariant:** `master` is always an ancestor of `dev` (`dev ⊇ master`). Releasing by fast-forward keeps `master` a strict prefix of `dev`'s history, so the branches never diverge (no more manual "reconcile dev with master").
+
+Enforced by [`.github/workflows/branch-sync-guard.yml`](../.github/workflows/branch-sync-guard.yml):
+- **Ancestry check** (push to `master`/`dev`, plus nightly) — fails if `master` has commits not on `dev`; fix by back-merging `master → dev`.
+- **PR-target check** (PRs to `master`) — fails unless the PR head is `dev`.
+
+If a non-fast-forward merge to `master` ever slips through, back-merge `master → dev` immediately to restore the invariant (the nightly check flags it otherwise).
+
 ## CI Tooling
 
 | Gate | Tool | Status |
