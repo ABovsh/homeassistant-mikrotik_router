@@ -10,13 +10,15 @@ Monitor and control your MikroTik router from Home Assistant.
 
 ![Mikrotik Logo](https://raw.githubusercontent.com/tomaae/homeassistant-mikrotik_router/master/docs/assets/images/ui/header.png)
 
-### What's new in v2.3.19-beta.2 (pre-release)
-Rolls up the quality-scale and read-only fixes on `dev` for validation before the v2.3.19 stable release. ⚠️ Pre-release — please report issues on GitHub.
+### What's new in v2.3.19
+Stable release rolling up the read-only and quality-scale fixes since v2.3.18. Validated live against a multi-device RouterOS deployment before tagging.
 - **Read-only users now get wireless / CAPsMAN / PPP data** — on RouterOS 7.x, an HA user without write/policy/reboot rights previously saw zero wireless clients. The firmware version is now read from `/system/resource`, so capability detection works without granting write access. Thanks to @ahharvey for the fix and wifi-qcom testing. Addresses #82.
 - **Reauthentication flow** — if your router credentials change, re-enter them via the normal Home Assistant reauth prompt instead of deleting and re-adding the integration.
 - **Cleaner entity names** — distinct device-trackers and per-VLAN DHCP-server sensors no longer collide into `_2`/`_3` names (e.g. several devices all reporting the hostname `lwip0`). `unique_id`s are unchanged, so existing entity IDs and automations are preserved.
+- **Environment sensors no longer get stuck `unavailable`** — empty or transient RouterOS global script variables (e.g. `defconfMode`, cleared on reboot) no longer create empty-state or orphaned entities.
 - **HA Quality Scale: Silver** — Bronze + Silver tiers met and declared (typed runtime-data, per-platform parallel updates, reauthentication).
 - **More diagnosable firmware detection** — version-gated polling paths now log at debug instead of silently doing nothing while the firmware version is briefly unknown.
+- **Quality & process** — documented release validation (CI test suite + live per-sensor-class cross-check against real RouterOS hardware) and review gates (multi-agent audit panels + specialized passes).
 - Internal: test-suite hardening and CI resilience.
 
 ### What's new in v2.3.18

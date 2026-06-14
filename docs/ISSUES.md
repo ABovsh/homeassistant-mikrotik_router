@@ -10,7 +10,7 @@
 > 1. **`ENH-260509-poe-energy` (#59)** — native PoE-out energy (kWh) sensors. Retained branch `docs/enh-260509-poe-energy`; reserved beta name `v2.4.0-beta`. Panel to scope build approach + test/golden coverage.
 > 2. **librouteros 4.x migration** — `ISS-260417` (pinned `librouteros>=3.4.1,<4.0` since v2.3.14 — the cap to lift) + `ENH-260512-librouteros-test-matrix`. Salvage plan on retained branch `claude/review-engagement-requests-dIZVx` (carries a stale ADR-010 dup to renumber).
 >
-> **Release ops — stable v2.3.19 (when ready):** bump `2.3.19-beta.2 → 2.3.19`, `dev→master` real merge, tag `v2.3.19` on `master` (not pre-release) → `release.yml` builds the zip.
+> **Released v2.3.19 (2026-06-14, CR-260614-release-v2.3.19):** FF `dev→master`, GitHub Release `v2.3.19`. **Branch-sync gate added** (`branch-sync-guard.yml`): enforces `master ⊆ dev` + PRs-to-master-from-dev-only, so releases are fast-forward and the branches can't silently diverge. **`#82` stays OPEN** — read-only fix shipped but unvalidated (reporter unresponsive; our live read-only test was inconclusive/contaminated).
 >
 > **Other open threads (durable):**
 > - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — syrupy wiring → `setup_integration`/`mock_config_entry` fixture → realistic per-path `MockMikrotikAPI` fixtures (make-or-break) → per-platform exemplars → drop `sonar-project.properties` platform-coverage exclusions → extract portable template to `config/docs/templates/hacs-testing/`. Entity-output only; freeze MAC lookup + time.

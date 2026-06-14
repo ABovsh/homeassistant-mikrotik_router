@@ -4,6 +4,28 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-release-v2.3.19 — stable v2.3.19 + branch-sync gate
+
+**Date:** 2026-06-14
+**Branch:** `dev → master` (fast-forward); GitHub Release `v2.3.19`
+**Status:** Released
+
+### What changed
+- Version `2.3.19-beta.2 → 2.3.19` (`manifest.json`); README/info.md "What's New — v2.3.19" rolling up the cycle (read-only #82, reauth #89, entity-naming ADR-013, **env-sensor fix #105**, Silver) plus a **Quality & process** entry referencing the release-validation + review-gates docs (#106).
+- **New CI gate** `.github/workflows/branch-sync-guard.yml` + `docs/quality-gates.md` "Branch model": enforces the invariant **`master` ⊆ `dev`** (fast-forward releases; PRs to master must come from dev) to end the recurring dev/master drift.
+- Reconciled `master → dev` (back-merged #104's issue-68 docs close-out) so `dev ⊇ master` before the cut.
+
+### Why
+Cut the stable that `v2.3.19-beta.2` was validating, and add a guardrail so `dev`/`master` can't silently diverge again (the `v2.3.18` tag wasn't even an ancestor of `master`).
+
+### Release ops
+Fast-forward `dev → master`; publish GitHub Release `v2.3.19` (not pre-release) → `release.yml` (trigger `release: published`) builds the zip.
+
+### Open
+`#82` (read-only capability detection) ships **fixed** but stays **OPEN** — reporter (@ahharvey) unresponsive after two pings, and our own live read-only test was inconclusive (contaminated by session churn; a read-only setup failure was observed but not isolated). Validate via a clean integration-reload test or reporter confirmation before closing.
+
+---
+
 ## CR-260614-fix-env-sensor-empty-state — environment sensor empty value → None + skip value-less vars
 
 **Date:** 2026-06-14
