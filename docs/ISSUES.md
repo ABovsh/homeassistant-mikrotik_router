@@ -2,16 +2,14 @@
 
 ## Current Priorities
 
-1. ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless enrichment disabled for 7.13+ routers still on the legacy `wireless` package (detection gates the v2.3.17 fallback). **In Review in `claude/modest-einstein-0Ulby`; pending @fuecy validation on a `dev` pre-release.**
-2. ISS-260523-issue-68-capsman-interface — CAPsMAN AP-virtual interface not exposed when DHCP/ARP claimed the host first; AND fix for v7.13+ users still on legacy CAPsMAN (empty primary endpoint). **In Progress in `feature/issue-68-capsman-interface` (v2.3.17). Closes ENH-260523-capsman-endpoint-fallback in the same PR.**
-3. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
-4. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
-5. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
-6. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
-7. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
-8. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
+1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
+2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
+3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
+4. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
+5. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
+6. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
 
-(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71.)
+(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71. Both issue-68 entries — capsman-detection and capsman-interface — shipped in v2.3.18 and are closed; #68 and follow-up #76 closed.)
 
 ---
 
@@ -21,7 +19,7 @@
 **Type:** Bug
 **Priority:** High
 **Created:** 2026-05-25
-**Status:** 🟡 In Review — fix in `claude/modest-einstein-0Ulby`; awaiting @fuecy validation on a `dev` pre-release
+**Status:** 🔴 Closed — shipped in v2.3.18 (#77); @fuecy verified on a clean install. #68 closed.
 
 **Symptom:**
 On RouterOS 7.13+ routers still running the legacy `wireless` package (not the new wifi driver), CAPsMAN client data never appears and wireless interface attributes are empty — even after the v2.3.17 dual-endpoint fallback. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy (RouterOS 7.21.4).
@@ -38,7 +36,7 @@ Package-driven detection. `_has_wifi_package()` returns `False` when an enabled 
 **Type:** Bug
 **Priority:** High
 **Created:** 2026-05-23
-**Status:** 🟡 In Progress — fix in `feature/issue-68-capsman-interface` (v2.3.17)
+**Status:** 🔴 Closed — shipped in v2.3.17 (additive `capsman_interface` attribute), reached end users via the v2.3.18 detection fix (#77). #68 closed; cosmetic follow-up #76 closed as not-planned.
 
 **Symptom:**
 On a router with CAPsMAN APs (`Slaapkamer`, `Zolder`, etc.) the `interface` attribute on `device_tracker.<wireless-mac>` entities shows the bridge name, not the AP-virtual interface. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy.
