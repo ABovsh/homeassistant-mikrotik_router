@@ -181,6 +181,16 @@ Expose LTE modem cell metrics (RSSI/RSRP/RSRQ/SINR, registration status, operato
 
 ---
 
+### ENH-260614-ha-canary-ci — non-blocking CI lane against HA latest/dev to surface deprecations early
+**Type:** Enhancement (CI / test quality)
+**Priority:** Medium
+**Created:** 2026-06-14
+**Status:** 🔵 Filed
+
+The suite pins one HA version (whatever `pytest-homeassistant-custom-component` resolves), so a deprecation introduced upstream — e.g. `ScannerEntity` in HA 2026.6 (#495) — isn't seen until a user reports log noise. Add a **non-blocking** (`continue-on-error`) CI matrix lane that installs the newest HA (or HA `dev`) and runs the suite, surfacing new deprecations/removals the day they ship. Pairs with `ENH-260523-ha-release-watch` (release-notes watcher) but operates at the test level; treat a red canary as an early-warning signal to file a deprecation ISS, not a PR blocker.
+
+---
+
 ### ENH-260608-test-suite-hardening — migrate tests to spec'd mocks, parametrize, behaviour assertions
 **Type:** Enhancement (test quality)
 **Priority:** **High — pre-release deliverable** (maintainer 2026-06-08: must land before the next release)
@@ -197,6 +207,7 @@ The suite leans on unspecced `MagicMock` (yes-man) coordinators/descriptions, ne
 - [ ] **Goldens build — implement ADR-014** (the durable target): syrupy wiring → `setup_integration` fixture → deterministic per-path `MockMikrotikAPI` fixtures (make-or-break) → sensor exemplar → expand per platform → drop `sonar-project.properties` platform exclusions → portable `config/docs/templates/hacs-testing/` template. **Next-session focus.**
 - [ ] (OPTIONAL — superseded by ADR-014 goldens) `conftest.py::make_mock_coordinator` `spec=MikrotikCoordinator` bridge; do only as a quick win before goldens land
 - [ ] remaining (orthogonal): T4 parametrize clusters, T6 fixtures, T3 `make_coordinator` `object.__new__`
+- [ ] **Deprecation-as-failure** (retrospective on ScannerEntity #495 / config-flow double-reload ISS-260614 / librouteros ISS-260417 — all warnings/silent fallbacks our mocked unit tests can't see): once the `setup_integration` fixture lands, add a test that loads the entry through HA and asserts `caplog` has no `deprecated` / `will be removed` records; investigate whether `pytest-homeassistant-custom-component` can promote HA deprecation reports to errors. Pin external-lib call contracts at every mock seam (done for `librouteros.connect` — `TestConnectKwargs`/`TestLoginMethod`; extend to remaining seams).
 
 ---
 
