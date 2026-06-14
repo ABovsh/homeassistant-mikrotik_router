@@ -156,18 +156,27 @@ _POE_ATTRIBUTES = (
     "poe-out-power",
 )
 _POE_MEASUREMENT_ATTRIBUTES = ("poe-out-voltage", "poe-out-current", "poe-out-power")
+_POE_ENERGY_ATTRIBUTE = "poe-out-energy-delta-wh"
 
 
 def _skip_poe_sensor(config_entry, entity_description, data, uid) -> bool:
     """Skip PoE sensors when disabled or unsupported by hardware."""
-    if entity_description.data_attribute not in _POE_ATTRIBUTES:
+    attr = entity_description.data_attribute
+    if attr not in _POE_ATTRIBUTES and attr != _POE_ENERGY_ATTRIBUTE:
         return False
 
     if not config_entry.options.get(CONF_SENSOR_POE, DEFAULT_SENSOR_POE):
         return True
+
+    if attr == _POE_ENERGY_ATTRIBUTE:
+        # Per-port energy persists through transient power flaps, so it is gated
+        # on an attributable source (measured or estimated) rather than on a
+        # live power reading. See ADR-017.
+        return uid not in data or data[uid].get("poe-out-energy-source") is None
+
     if uid not in data or data[uid].get("poe-out-status") is None:
         return True
-    if entity_description.data_attribute in _POE_MEASUREMENT_ATTRIBUTES and data[uid].get(entity_description.data_attribute) is None:
+    if attr in _POE_MEASUREMENT_ATTRIBUTES and data[uid].get(attr) is None:
         return True
 
     return False
