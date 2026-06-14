@@ -4,6 +4,29 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-fix-env-sensor-empty-state — environment sensor empty value → None + skip value-less vars
+
+**Date:** 2026-06-14
+**Branch:** `fix/env-sensor-empty-state` → PR to `dev`
+**Status:** In Review (target stable `v2.3.19`)
+
+### What changed
+- `coordinator.py` — `get_environment()` now coerces empty/whitespace variable values to `None` after parsing `/system/script/environment`, so the sensor reads `unknown` instead of the invalid `''` state (incl. when a live entity's variable later empties).
+- `entity.py` — new `_skip_environment_sensor()` wired into `_skip_sensor()`; skips entity creation for value-less environment variables so transient/RAM-only globals don't create orphan-prone entities.
+- `tests/test_coordinator.py` — `test_environment_empty_value_coerced_to_none`.
+- `tests/test_entity.py` — `test_skip_environment_sensor_when_value_none` / `_empty_string` / `_whitespace` / `test_no_skip_environment_sensor_when_value_present`.
+
+### Why
+Resolves `ISS-260608-env-sensor-empty-state`. Confirmed live (2026-06-14) via the `ha-query` MCP + SSH: `sensor.mikrotik_hapax3_environment_defconfmode` was stuck `unavailable`/`restored` because `defconfMode` is a RouterOS global *script* variable — RAM-only, wiped on reboot (hap_ax3 rebooted ~06-13; `/system/script/environment` now empty). Empty-string is not a valid HA state; coercing to `None` fixes the state-convention inconsistency, and skipping value-less variables avoids creating the orphan-prone entity in the first place.
+
+### Verification
+Full pytest suite green: **621 passed, 5 skipped** (py3.14 in Docker on the Ubuntu/WSL2 runner). New tests confirmed collected+passing: `test_environment_empty_value_coerced_to_none` (coordinator) + 4× `test_skip_environment_sensor_*` (entity). `code-simplifier` + `silent-failure-hunter` agents: PASS (no changes recommended). Live behaviour validated via `ha-query` MCP + SSH cross-check (per the internal validation doc `config/docs/internal/2026-06-14-mikrotik-sensor-validation-v2.3.19-beta.2.md`). CI (py3.13 + 3.14) to confirm on push.
+
+### Release ops
+Lands on `dev`; ships in stable `v2.3.19` (no manifest bump in this CR — version bump is the release step `2.3.19-beta.2 → 2.3.19`).
+
+---
+
 ## CR-260608-release-v2.3.19-beta.2 — pre-release for validation of the v2.3.19 roll-up
 
 **Date:** 2026-06-08

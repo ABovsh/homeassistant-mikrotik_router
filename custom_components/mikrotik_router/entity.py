@@ -112,6 +112,7 @@ def _skip_sensor(config_entry, entity_description, data, uid) -> bool:
         or _skip_binary_sensor(config_entry, entity_description, data, uid)
         or _skip_device_tracker(config_entry, entity_description)
         or _skip_poe_sensor(config_entry, entity_description, data, uid)
+        or _skip_environment_sensor(entity_description, data, uid)
     )
 
 
@@ -170,6 +171,23 @@ def _skip_poe_sensor(config_entry, entity_description, data, uid) -> bool:
         return True
 
     return False
+
+
+def _skip_environment_sensor(entity_description, data, uid) -> bool:
+    """Skip environment sensors whose RouterOS variable carries no value.
+
+    `/system/script/environment` lists global script variables, some of which are
+    transient (e.g. ``defconfMode`` set by the default-config script, then cleared)
+    and RAM-only — wiped on reboot. A value-less variable yields a sensor that is
+    empty now and orphaned/unavailable once the variable disappears, so only expose
+    variables that actually hold a value. (get_environment already coerces empty
+    values to None; the string check guards direct/legacy data.)
+    See ISS-260608-env-sensor-empty-state.
+    """
+    if entity_description.data_path != "environment":
+        return False
+    value = data[uid].get(entity_description.data_attribute)
+    return value is None or (isinstance(value, str) and value.strip() == "")
 
 
 # ---------------------------

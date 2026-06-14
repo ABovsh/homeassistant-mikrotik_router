@@ -1916,6 +1916,16 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             ],
         )
 
+        # RouterOS global script variables can exist with an empty value (e.g.
+        # defconfMode set by the default-config script). Empty-string is not a
+        # valid HA sensor state — coerce to None so the entity reads "unknown"
+        # rather than "", and so _skip_environment_sensor can drop value-less
+        # variables entirely. See ISS-260608-env-sensor-empty-state.
+        for env in self.ds["environment"].values():
+            value = env.get("value")
+            if value is None or (isinstance(value, str) and value.strip() == ""):
+                env["value"] = None
+
     # ---------------------------
     #   get_captive
     # ---------------------------
