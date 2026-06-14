@@ -143,11 +143,11 @@ Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived fro
 
 ---
 
-### ISS-260614-configflow-reload-deprecation — config-entry listener + reload deprecated (HA 2026.6 → error 2026.12)
+### ISS-260614-configflow-reload-deprecation — HA deprecations: config-flow reload double-reload + ScannerEntity alias
 **Type:** Bug (HA deprecation)
 **Priority:** Medium — hard deadline HA Core **2026.12**
 **Created:** 2026-06-14
-**Status:** 🟡 Open
+**Status:** 🟢 Fixed on `chore/ha-deprecations-cleanup` (CR-260614-ha-deprecations-cleanup) — bundled with the ScannerEntity alias deprecation (upstream #495).
 
 **Symptom:** HA deprecated (2026.6) using a config-entry update listener together with config-flow reload methods (double-reload / race); becomes an **error in 2026.12**. `[verified: developers.home-assistant.io/blog]`
 
@@ -155,7 +155,29 @@ Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived fro
 
 **Fix (per HA):** drop the listener and rely on the config-flow reload, **or** switch to `async_update_and_abort()` / set `reload_on_update=False`. Small change; land before 2026.12.
 
+**Resolution:** reauth switched to `async_update_and_abort()` (`config_flow.py`) — the update listener performs the single reload, ending the double-reload. **Bundled (upstream #495, HA 2026.6 → alias removed 2027.6):** `device_tracker.py` now imports `ScannerEntity`/`SourceType` from `homeassistant.components.device_tracker` instead of the deprecated `.config_entry`/`.const` aliases. 654 tests pass.
+
 **Note:** other 2026.x deprecations checked — `FlowHandler.show_advanced_options` (removed 2027.6) not used; MQTT publish-param change N/A. Python 3.14 already the HA runtime (CI covers 3.13/3.14).
+
+---
+
+### ENH-260614-sfp-temperature — expose `sfp-temperature` health sensor (upstream #499)
+**Type:** Enhancement (new sensor)
+**Priority:** Low
+**Created:** 2026-06-14
+**Status:** 🔵 Filed — ported from upstream [tomaae#499](https://github.com/tomaae/homeassistant-mikrotik_router/issues/499)
+
+Some boards (e.g. CRS317-1G-16S+) report `sfp-temperature` in `/system/health`, which the integration does not surface. Add it as a temperature sensor alongside the existing health temps — a small addition to the v7 `health7` consumption + a `sensor_types.py` descriptor (`device_class=temperature`, °C, DIAGNOSTIC). Hardware-gated like the other health sensors; verify the exact field name on a live SFP-equipped board (`/system/health print`) before shipping (no SFP-temp board in the maintainer fleet — csr310 reports cpu/phy/board only).
+
+---
+
+### ENH-260614-lte-modem-info — LTE modem cell-info sensors (upstream #249)
+**Type:** Enhancement (new sensors)
+**Priority:** Medium — high upstream demand (26 comments)
+**Created:** 2026-06-14
+**Status:** 🔵 Filed — ported from upstream [tomaae#249](https://github.com/tomaae/homeassistant-mikrotik_router/issues/249)
+
+Expose LTE modem cell metrics (RSSI/RSRP/RSRQ/SINR, registration status, operator, band/EARFCN, cell-id) for RouterOS LTE interfaces from `/interface/lte/monitor [find] once`, gated on LTE-interface detection + a new `CONF_SENSOR_LTE` opt-in. Neither upstream nor the Csontikka alternative implements this → a genuine differentiator. Needs capability detection, a `get_lte()` coordinator fetch, descriptors, and live validation on LTE hardware (none in the maintainer fleet — contributor/beta gate, like PoE energy). Scope its own ADR if the dataset shape is non-trivial.
 
 ---
 

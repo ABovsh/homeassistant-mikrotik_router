@@ -4,6 +4,25 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-ha-deprecations-cleanup - clear HA device_tracker + config-flow reload deprecations
+
+**Date:** 2026-06-14
+**Branch:** `chore/ha-deprecations-cleanup` -> PR to `dev`
+**Status:** In Review
+
+### What changed
+- `device_tracker.py` - import `ScannerEntity` and `SourceType` from `homeassistant.components.device_tracker` instead of the deprecated `.config_entry` / `.const` aliases (HA 2026.6 deprecation; alias removed in HA Core 2027.6). Upstream [tomaae#495](https://github.com/tomaae/homeassistant-mikrotik_router/issues/495).
+- `config_flow.py` - reauth uses `async_update_and_abort()` instead of `async_update_reload_and_abort()`; the existing config-entry update listener performs the single reload, ending the deprecated double-reload (HA 2026.6 -> error 2026.12). `ISS-260614`.
+- `tests/test_config_flow.py` - comment refresh (reauth now reloads via the listener).
+
+### Why
+Two HA deprecations logged on 2026.6+: the `ScannerEntity` alias (removed 2027.6) and the update-listener + config-flow-reload double-reload (error 2026.12). Both are deadline-driven and clear real log noise for every user; bundled into one cleanup.
+
+### Verification
+654 passed, 5 skipped (py3.14 Docker); ruff clean. Reauth flow test stays green (abort reason + data update preserved by `async_update_and_abort`).
+
+---
+
 ## CR-260614-librouteros-login-method - pass librouteros login_method callable (auth correctness)
 
 **Date:** 2026-06-14
