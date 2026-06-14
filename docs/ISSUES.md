@@ -2,23 +2,24 @@
 
 ## In-flight
 
-> **Updated 2026-06-09 (session-end).** Phase 0 of the post-Silver plan shipped to `dev`; **`v2.3.19-beta.2` pre-release is out for validation** (~few days) before stable `v2.3.19`. Planning artifact: `~/.claude/plans/wise-waddling-kernighan.md` (multi-agent panels → **descope: defer the coordinator decomposition, invest in entity goldens**).
+> **Updated 2026-06-14 (session-end).** Stable **v2.3.19** not yet cut. This session: live-validated **every sensor class** of the deployed `v2.3.19-beta.2` against the routers (HA REST MCP + SSH ground-truth) — all classes report correctly. Found + fixed the one real bug; added validation/process docs. Both PRs merged to `dev`, CI-green.
 >
-> **Shipped to `dev` this session (in order):** **#97** §2.1 fw-version fall-through fixes (`else`+DEBUG in `get_capabilities`/`_async_update_client_traffic`/`get_system_health`; malformed `elif 0 < … >= 7` fixed) · **#81** @ahharvey read-only fw-version fix (`_parse_fw_version_from_resource`; **merged not-squashed**, authorship preserved) · **#98** our #82 hardening (7 tests + unavailable-version DEBUG log) · **#100** ISSUES status updates + closed `ISS-260509-ha-2026.5-untested` · **#101 ADR-014 entity-golden test framework** (+ indexed ADR-013). **`dev ⊇ master` holds.** Every change verified on the WSL2/`twentyone` runner (py3.14) + CI (py3.13 + 3.14).
+> **Shipped to `dev` this session:** **[#105](https://github.com/jnctech/homeassistant-mikrotik_router/pull/105)** env-sensor empty value → `None` + skip value-less vars (`ISS-260608` fixed; `CR-260614`; full suite **621 pass** on py3.14) · **[#106](https://github.com/jnctech/homeassistant-mikrotik_router/pull/106)** `docs/release-validation.md` (CI + live cross-check playbook) + **Review Gates** in `quality-gates.md` (multi-agent audit panels + specialized passes). Branches `fix/env-sensor-empty-state` + `docs/release-validation` **retained** (don't delete immediately — `validate`-workflow race). Maintainer manually deleted the orphan `environment_defconfMode` entity.
 >
-> **Release — `v2.3.19-beta.2` PRE-RELEASE cut from `dev`** (manifest = `2.3.19-beta.2`; zip built; CR-260608-release-v2.3.19-beta.2). **Awaiting validation:** #82 @ahharvey wifi-qcom read-only; entity-naming (ADR-013) friendly-name change on real setups; reauth (#89). **Then stable v2.3.19:** bump `2.3.19-beta.2 → 2.3.19`, `dev→master` real merge, tag `v2.3.19` on `master` (not pre-release) → `release.yml` builds the zip.
+> **NEXT SESSION — panel-driven (recon → review → junior-dev → senior-dev challenge, cite-or-null):**
+> 1. **`ENH-260509-poe-energy` (#59)** — native PoE-out energy (kWh) sensors. Retained branch `docs/enh-260509-poe-energy`; reserved beta name `v2.4.0-beta`. Panel to scope build approach + test/golden coverage.
+> 2. **librouteros 4.x migration** — `ISS-260417` (pinned `librouteros>=3.4.1,<4.0` since v2.3.14 — the cap to lift) + `ENH-260512-librouteros-test-matrix`. Salvage plan on retained branch `claude/review-engagement-requests-dIZVx` (carries a stale ADR-010 dup to renumber).
 >
-> **Next focus — the goldens BUILD (fresh session).** Implement **ADR-014**: syrupy wiring → `setup_integration`/`mock_config_entry` fixture → **realistic deterministic per-path `MockMikrotikAPI` fixtures (the make-or-break part)** → one platform exemplar (sensor) → expand per platform → drop the `sonar-project.properties` platform-coverage exclusions → extract the portable template to `config/docs/templates/hacs-testing/` (maintainer wants the **full playbook** for other HACS repos). Scoping (ADR-014): entity-output only (never the 38-key `ds`); freeze MAC lookup + time; fixture is the unit of reuse.
+> **Release ops — stable v2.3.19 (when ready):** bump `2.3.19-beta.2 → 2.3.19`, `dev→master` real merge, tag `v2.3.19` on `master` (not pre-release) → `release.yml` builds the zip.
 >
-> **Other open threads:**
-> - **`spec=MikrotikCoordinator` factory bridge** — now **OPTIONAL**; goldens supersede it (ADR-014). Do only if a quick win is wanted before goldens land.
-> - **Gold/Platinum conformance** — `reconfiguration-flow` (Gold: no `async_step_reconfigure` yet) + `strict-typing` (Platinum: no mypy / `py.typed`). Independent of goldens.
-> - **librouteros 4.x migration (circle-back)** — plan drafted on the **retained** branch `claude/review-engagement-requests-dIZVx` (carries a stale ADR-010 to renumber); see `ISS-260417`. Lift the `<4.0` cap behind `ENH-260512-librouteros-test-matrix`.
-> - **`ENH-260608-netwatch-naming` (#70)** — reuse ADR-013's `data_name_compose` once `get_netwatch` parses `name` + a precedence decision.
-> - **#76** capsman client shows AP name vs bridge name (low-pri refinement, @fuecy). **`ISS-260608-env-sensor-empty-state`** (env sensor `''`→None). **`ISS-260608-cleanup-over-logging`** (#92, per-entity removal → DEBUG).
-> - **Coordinator decomposition — DEFERRED** (would be ADR-016) until issue-68 settles + a concrete trigger; the host-merge is the live-bug area.
+> **Other open threads (durable):**
+> - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — syrupy wiring → `setup_integration`/`mock_config_entry` fixture → realistic per-path `MockMikrotikAPI` fixtures (make-or-break) → per-platform exemplars → drop `sonar-project.properties` platform-coverage exclusions → extract portable template to `config/docs/templates/hacs-testing/`. Entity-output only; freeze MAC lookup + time.
+> - **Gold/Platinum conformance** — `reconfiguration-flow` (no `async_step_reconfigure`) + `strict-typing` (no mypy / `py.typed`).
+> - **`ENH-260608-netwatch-naming` (#70)** — reuse ADR-013 `data_name_compose` once `get_netwatch` parses `name` + a precedence decision.
+> - **#76** capsman client shows AP name vs bridge name (low-pri, @fuecy). **`ISS-260608-cleanup-over-logging`** (#92, per-entity removal → DEBUG).
+> - **Coordinator decomposition — DEFERRED** (would be ADR-016) until a concrete trigger; the host-merge is the live-bug area.
 >
-> **Repo hygiene:** 18 orphan branches pruned this session; **retained** `claude/review-engagement-requests-dIZVx` (librouteros-4x salvage) + `docs/enh-260509-poe-energy` (#59). Issue-68 capsman work shipped in v2.3.18 (#77) — its old branches were stale. **Standards:** refresh this `## In-flight` block on `dev` at session-end; **don't delete a merged PR branch immediately** — it races the `validate` workflow against the (now-missing) PR ref (cosmetic red on the closed PR).
+> **Standards:** refresh this `## In-flight` block on `dev` at session-end; **don't delete a merged PR branch immediately** — it races the `validate` workflow against the (now-missing) PR ref (cosmetic red on the closed PR). Live validation each release per `docs/release-validation.md`.
 
 ## Current Priorities
 
@@ -114,7 +115,7 @@ On networks with many clients or multiple DHCP servers, distinct entities receiv
 **Type:** Bug (state quality)
 **Priority:** Low
 **Created:** 2026-06-08
-**Status:** 🟢 Fixed on branch `fix/env-sensor-empty-state` (CR-260614-fix-env-sensor-empty-state) — target v2.3.19
+**Status:** 🟢 Fixed — merged to `dev` ([#105](https://github.com/jnctech/homeassistant-mikrotik_router/pull/105), CR-260614-fix-env-sensor-empty-state). Ships in v2.3.19.
 
 **Symptom:**
 A `*_environment_<name>` sensor reports an empty string (`''`) as its state when the corresponding RouterOS environment variable exists but is empty (observed: `environment_defconfMode`). Empty-string is not a valid HA state convention — HA expects `None` → `unknown`/`unavailable`. On other routers where the same variable has no value the sensor correctly reads `unavailable`, so the behaviour is inconsistent.
@@ -125,7 +126,20 @@ A `*_environment_<name>` sensor reports an empty string (`''`) as its state when
 - `coordinator.get_environment` coerces empty/whitespace values to `None`, so the entity reads `unknown` rather than `''` (incl. when a live entity's variable later goes empty).
 - `entity._skip_environment_sensor` skips entity creation for value-less variables, so transient/empty globals don't create orphan-prone entities in the first place.
 - Tests: `test_environment_empty_value_coerced_to_none` (coordinator), `test_skip_environment_sensor_*` (entity).
-- Residual: a *pre-existing* orphan entity must be deleted once in HA (no integration auto-removal). The broader "transient non-empty global orphans on reboot" class is out of scope (would need entity cleanup, tracked separately if it recurs).
+- Residual: the pre-existing orphan entity (`sensor.mikrotik_hapax3_environment_defconfmode`) was **deleted manually by the maintainer 2026-06-14**. The broader "transient non-empty global orphans on reboot" class is out of scope (would need entity cleanup, tracked separately if it recurs).
+
+---
+
+### ENH-260509-poe-energy — native PoE-out energy sensors (#59)
+**Type:** Enhancement (new sensors)
+**Priority:** Medium
+**Created:** 2026-05-09
+**Status:** 🟡 Open — scoped on retained branch `docs/enh-260509-poe-energy` (not merged to `dev`)
+
+**Summary:**
+Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived from the existing PoE-out **power** reading, so users get Energy-dashboard-compatible consumption without template sensors. Detail/scoping notes live on the retained branch `docs/enh-260509-poe-energy` (commit `339932e`, +22 lines to ISSUES); the reserved beta name `v2.4.0-beta` is earmarked for this feature. `[branch contents verified 2026-06-14; full design UNVERIFIED — to be scoped next session]`
+
+**Next step:** multi-agent panel (recon → review → junior-dev → senior-dev challenge, cite-or-null) to scope: integration vs HA `integration`/`utility_meter` helper, counter source + reset handling, which boards report PoE-out power, and test/golden coverage.
 
 ---
 
