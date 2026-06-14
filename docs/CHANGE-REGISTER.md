@@ -4,6 +4,24 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-connect-contract-test - pin librouteros.connect() call contract
+
+**Date:** 2026-06-14
+**Branch:** `test/connect-contract-assertions` -> PR to `dev`
+**Status:** In Review
+
+### What changed
+- `tests/test_mikrotikapi.py` - `TestConnectKwargs` pins the exact kwargs passed to `librouteros.connect()` (positional creds; `{encoding, login_method, port}` + `ssl_wrapper` under SSL; the pre-3.0 `login_methods` name must never be passed). Complements `TestLoginMethod`.
+- `docs/ISSUES.md` - test-hardening follow-ups filed: deprecation-as-failure setup test (under ENH-260608-test-suite-hardening) + `ENH-260614-ha-canary-ci`.
+
+### Why
+Retrospective on the bugs swept from upstream (ScannerEntity #495, config-flow double-reload ISS-260614, librouteros `login_methods` ISS-260417): all three slipped because they are warnings / silent fallbacks at mocked seams against a single pinned HA. This pins the one external-lib call contract that silently drops bad kwargs; the structural catches (real-setup deprecation test, HA-latest canary lane) are filed for the test-hardening track.
+
+### Verification
+656 passed, 5 skipped (py3.14 Docker; +2 contract tests); ruff clean.
+
+---
+
 ## CR-260614-ha-deprecations-cleanup - clear HA device_tracker + config-flow reload deprecations
 
 **Date:** 2026-06-14

@@ -556,3 +556,35 @@ class TestLoginMethod:
         from custom_components.mikrotik_router.mikrotikapi import _login_plain
 
         assert self._connect_kwargs("bogus")["login_method"] is _login_plain
+
+
+# --- librouteros.connect() call contract ---
+
+
+class TestConnectKwargs:
+    """Pin the exact kwargs passed to librouteros.connect() so a silently-renamed
+    or dropped kwarg (the `login_methods`->`login_method` class of bug, where the
+    old name is accepted-then-ignored by **kwargs) fails loudly here instead of
+    only surfacing as wrong behaviour against a real router. See ISS-260417."""
+
+    def _call(self, **api_kwargs):
+        from unittest.mock import patch as _patch
+
+        api = make_api(**api_kwargs)
+        with _patch("custom_components.mikrotik_router.mikrotikapi.librouteros.connect") as mock_connect:
+            mock_connect.return_value = MagicMock()
+            api.connect()
+        return mock_connect.call_args
+
+    def test_positional_credentials_and_kwarg_set_no_ssl(self):
+        args, kwargs = self._call(use_ssl=False, port=8728)
+        assert args == ("10.0.0.1", "admin", "admin")
+        assert set(kwargs) == {"encoding", "login_method", "port"}
+        assert kwargs["port"] == 8728
+        # the pre-3.0 plural name must never be passed (it is silently ignored)
+        assert "login_methods" not in kwargs
+
+    def test_includes_ssl_wrapper_under_ssl(self):
+        _, kwargs = self._call(use_ssl=True)
+        assert "ssl_wrapper" in kwargs
+        assert "login_methods" not in kwargs
