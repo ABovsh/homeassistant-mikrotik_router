@@ -901,3 +901,45 @@ def test_no_skip_netwatch_when_enabled():
     data = {"8.8.8.8": {"status": "up"}}
     cfg = make_config_entry({CONF_SENSOR_NETWATCH_TRACKER: True})
     assert _skip_sensor(cfg, desc, data, "8.8.8.8") is False
+
+
+# ---------------------------------------------------------------------------
+# PoE-out energy sensor gating (ADR-017 / ENH-260509)
+# ---------------------------------------------------------------------------
+
+
+def _energy_desc():
+    """Real per-port PoE energy description (only data_attribute is read by skip)."""
+    return MikrotikSensorEntityDescription(
+        key="poe_out_energy",
+        data_attribute="poe-out-energy-delta-wh",
+        func="MikrotikPoEEnergySensor",
+    )
+
+
+def test_skip_poe_energy_sensor_when_option_disabled():
+    """Per-port energy sensor is skipped when CONF_SENSOR_POE is False."""
+    data = {"ether1": {"poe-out-energy-source": "measured"}}
+    cfg = make_config_entry({CONF_SENSOR_POE: False})
+    assert _skip_sensor(cfg, _energy_desc(), data, "ether1") is True
+
+
+def test_skip_poe_energy_sensor_when_no_attributable_source():
+    """No measured or estimated source -> no energy sensor (null-not-guess)."""
+    data = {"ether1": {"poe-out-energy-source": None}}
+    cfg = make_config_entry({CONF_SENSOR_POE: True})
+    assert _skip_sensor(cfg, _energy_desc(), data, "ether1") is True
+
+
+def test_no_skip_poe_energy_sensor_when_measured():
+    """A measured source creates the energy sensor."""
+    data = {"ether1": {"poe-out-energy-source": "measured"}}
+    cfg = make_config_entry({CONF_SENSOR_POE: True})
+    assert _skip_sensor(cfg, _energy_desc(), data, "ether1") is False
+
+
+def test_no_skip_poe_energy_sensor_when_estimated():
+    """An estimated source (nameplate) also creates the energy sensor."""
+    data = {"ether1": {"poe-out-energy-source": "estimated"}}
+    cfg = make_config_entry({CONF_SENSOR_POE: True})
+    assert _skip_sensor(cfg, _energy_desc(), data, "ether1") is False

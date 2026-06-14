@@ -134,7 +134,7 @@ A `*_environment_<name>` sensor reports an empty string (`''`) as its state when
 **Type:** Enhancement (new sensors)
 **Priority:** Medium
 **Created:** 2026-05-09
-**Status:** 🟡 Open — **G0 design panel done 2026-06-14.** Recommend **Option A** (power sensors + Riemann/Utility-Meter blueprint); native energy is the turnkey alternative, beta-gated. Target **v2.3.20-beta** (not v2.4.0). Scoped notes on retained branch `docs/enh-260509-poe-energy`.
+**Status:** 🟢 Implemented on `feature/poe-energy-sensors` (ADR-017, CR-260614-poe-energy-sensors) — native measured **and** nameplate-estimate energy. Ships **v2.3.20-beta.1** (pre-release); awaiting @Dillton validation on metering hardware before stable. (G0 panel 2026-06-14 recommended the Option A blueprint; maintainer chose the turnkey native path, beta-gated.)
 
 **Summary:**
 Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived from the existing PoE-out **power** reading, so users get Energy-dashboard-compatible consumption without template sensors. Detail/scoping notes live on the retained branch `docs/enh-260509-poe-energy` (commit `339932e`, +22 lines to ISSUES); the reserved beta name `v2.4.0-beta` is earmarked for this feature. `[branch contents verified 2026-06-14; full design UNVERIFIED — to be scoped next session]`

@@ -4,6 +4,30 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-poe-energy-sensors — native PoE-out energy sensors (measured + nameplate estimate)
+
+**Date:** 2026-06-14
+**Branch:** `feature/poe-energy-sensors` -> PR to `dev`
+**Status:** In Review — ships beta-gated as **v2.3.20-beta.1** for @Dillton to validate on metering hardware.
+
+### What changed
+- `coordinator.py` — per-poll trapezoidal PoE-out energy accumulation (`_poe_energy_step`, `_accumulate_poe_energy`, `_resolve_poe_power`) writing a Wh increment into `ds["interface"][uid]` / `ds["resource"]`; new `get_neighbor()` (`/ip/neighbor` -> interface->board map) + `_POE_DEVICE_NAMEPLATE` table for estimating non-metering hardware; transient `_poe_energy_last_power` state; energy keys in `get_interface` ensure_vals; accumulation + neighbour fetch gated on `option_sensor_poe`.
+- `sensor.py` — `MikrotikPoEEnergySensor` / `MikrotikPoEEnergyTotalSensor` (`RestoreSensor`) own the restart-persistent kWh total; `power_source` (measured|estimated) + `estimated_from_model` attributes.
+- `sensor_types.py` — per-port `poe_out_energy` + device-total `poe_out_energy_total` descriptors (ENERGY / TOTAL_INCREASING / kWh, non-diagnostic).
+- `entity.py` — `_skip_poe_sensor` gates the energy sensor on `CONF_SENSOR_POE` + an attributable source.
+- `manifest.json` — `2.3.19 -> 2.3.20-beta.1`. ADR-017; tests (coordinator + entity + sensor, real-typed).
+
+### Why
+Resolves `ENH-260509-poe-energy` (#59). RouterOS exposes only instantaneous PoE power; this integrates it to Energy-Dashboard-compatible kWh. Metering hardware gets a measured total; non-metering hardware (e.g. the maintainer's ax3->ac2, verified live 2026-06-14 to report no PoE power) gets a clearly-labelled nameplate estimate via neighbour discovery. Maintainer HW can't validate accuracy -> beta-gated.
+
+### Verification
+Full suite **651 passed, 5 skipped** (py3.14 in Docker). ruff clean; coordinator-reviewer PASS; silent-failure-hunter findings applied (non-numeric-power guard, neighbour-map retain-on-failure, corrupted-restore warning); code-simplifier reviewed (one finding rejected — would introduce a one-poll-lag in recorded state). Live cross-check on the ax3 (estimated path) is a beta task; measured-path accuracy is @Dillton.
+
+### Release ops
+Lands on `dev`; cut **pre-release** tag `v2.3.20-beta.1` off `dev` (not dev->master) -> `release.yml` builds the zip.
+
+---
+
 ## CR-260614-release-v2.3.19 — stable v2.3.19 + branch-sync gate
 
 **Date:** 2026-06-14
