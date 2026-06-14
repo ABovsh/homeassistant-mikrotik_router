@@ -111,6 +111,8 @@ behaves differently without write access.
 ## Release checklist
 
 - [ ] Automated suite green in CI on **both** Python 3.13 and 3.14.
+- [ ] Non-trivial changes passed the [Review Gates](quality-gates.md#review-gates) —
+      multi-agent audit panels (design/diagnosis) and the specialized pre-PR review passes.
 - [ ] Live cross-check of every sensor class against router truth on representative
       hardware (router + switch + AP; legacy + new Wi-Fi; read-only + full-access user).
 - [ ] No entity stuck `unknown`/`unavailable` without an explained cause.
