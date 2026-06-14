@@ -1,5 +1,17 @@
 # Quality Gates
 
+## Branch model
+
+- **`dev`** — the integration branch. **All** PRs target `dev`.
+- **`master`** — release-only. It advances **solely** via a `dev → master` **fast-forward** at release time, and the release is tagged on `master`.
+- **Invariant:** `master` is always an ancestor of `dev` (`dev ⊇ master`). Releasing by fast-forward keeps `master` a strict prefix of `dev`'s history, so the branches never diverge (no more manual "reconcile dev with master").
+
+Enforced by [`.github/workflows/branch-sync-guard.yml`](../.github/workflows/branch-sync-guard.yml):
+- **Ancestry check** (push to `master`/`dev`, plus nightly) — fails if `master` has commits not on `dev`; fix by back-merging `master → dev`.
+- **PR-target check** (PRs to `master`) — fails unless the PR head is `dev`.
+
+If a non-fast-forward merge to `master` ever slips through, back-merge `master → dev` immediately to restore the invariant (the nightly check flags it otherwise).
+
 ## CI Tooling
 
 | Gate | Tool | Status |
@@ -30,6 +42,41 @@
 ### Exclusions (see `sonar-project.properties`)
 - **Coverage:** platform wiring files, pure data descriptors, const, exceptions
 - **CPD:** `sensor_types.py`, `coordinator.py`, `tests/` (intentional structural repetition)
+
+## Review Gates
+
+Beyond the mechanical CI gates above, non-trivial changes go through structured
+review before merge. These are process gates (reviewer-run), not CI-enforced.
+
+### Multi-agent audit panels (design & diagnosis)
+
+For non-trivial work — new features, bug root-causing, architectural decisions — the
+change is reasoned through a multi-perspective panel before/with implementation:
+
+- **Recon** — read the actual source; establish the facts.
+- **Review** — assess the approach against existing patterns and ADRs.
+- **Junior-dev questions** — surface the clarifying questions an implementer would ask.
+- **Senior-dev challenge** — adversarially attack the proposal: edge cases, the
+  load-bearing assumption, simpler alternatives.
+
+Governing rule: **cite-or-null** — every factual claim about the code cites its source
+(`file:line`, command/tool output) or is explicitly marked UNVERIFIED. Unknowns are
+reported, never resolved with a plausible guess.
+
+### Specialized review passes (pre-PR)
+
+Changed code is run through focused review agents (see the Pre-PR Checklist):
+
+- **Simplification** (`/simplify`) — clarity, reuse, consistency; no behaviour change.
+- **Silent-failure hunt** — swallowed errors, inadequate fallbacks, masked failures.
+- **Code review** — adherence to the coding standards, ADRs, and project patterns.
+- **Domain reviewer** — `coordinator.py` changes also get the committed
+  `coordinator-reviewer` agent (ADR-010): helper-extraction (ADR-007), attribute
+  filtering (ADR-009), lock discipline, async patterns, UID stability.
+
+Other passes used when relevant: comment-accuracy, type-design, and PR test-coverage
+analysis. For live behaviour validation each release, see
+[Release Validation](release-validation.md).
 
 ## Local Development (Devcontainer)
 

@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util.dt import now as dt_now, utcnow
 
 
@@ -120,6 +121,12 @@ class MikrotikData:
 
     data_coordinator: MikrotikCoordinator
     tracker_coordinator: MikrotikTrackerCoordinator
+
+
+# Typed config entry — its runtime_data is the MikrotikData above. This is the
+# HA-recommended replacement for hass.data[DOMAIN][entry_id] (quality-scale
+# `runtime-data` rule) and the seed of the integration's typed data model.
+type MikrotikConfigEntry = ConfigEntry[MikrotikData]
 
 
 class MikrotikTrackerCoordinator(DataUpdateCoordinator[None]):
@@ -513,6 +520,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             self._detect_capabilities_v6(packages)
         elif self.major_fw_version >= 7:
             self._detect_capabilities_v7(packages)
+        else:
+            _LOGGER.debug(
+                "Mikrotik %s firmware version unknown (0); skipping capability detection this cycle",
+                self.host,
+            )
 
         for pkg, attr in [
             ("ups", "support_ups"),
@@ -616,10 +628,23 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             await self._run_if_enabled(func)
 
         if not self.api.connected():
-            raise UpdateFailed("Mikrotik Disconnected")
+            self._raise_disconnected()
 
         self.last_hwinfo_update = dt_now().replace(microsecond=0)
         return True
+
+    # ---------------------------
+    #   _raise_disconnected
+    # ---------------------------
+    def _raise_disconnected(self) -> None:
+        """Raise the appropriate error for a lost connection.
+
+        Invalid credentials raise ConfigEntryAuthFailed so HA starts the reauth
+        flow; any other disconnect raises UpdateFailed (transient — retried).
+        """
+        if self.api.error == "wrong_login":
+            raise ConfigEntryAuthFailed("Invalid Mikrotik username or password")
+        raise UpdateFailed("Mikrotik Disconnected")
 
     # ---------------------------
     #   _async_update_data
@@ -684,7 +709,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             await self._run_if_enabled(func, requires=enabled)
 
         if not self.api.connected():
-            raise UpdateFailed("Mikrotik Disconnected")
+            self._raise_disconnected()
 
         # UID tracking: monitor for new entities across update cycles.
         # Dispatcher is NOT fired automatically — _check_entity_exists guard
@@ -745,6 +770,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             await self.hass.async_add_executor_job(self.process_accounting)
         elif self.major_fw_version >= 7:
             await self.hass.async_add_executor_job(self.process_kid_control_devices)
+        else:
+            _LOGGER.debug(
+                "Mikrotik %s firmware version unknown (0); skipping client traffic collection this cycle",
+                self.host,
+            )
 
     def get_access(self) -> None:
         """Get access rights from Mikrotik"""
@@ -1591,7 +1621,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     {"name": "poe-in-current", "default": 0},
                 ],
             )
-        elif 0 < self.major_fw_version >= 7:
+        elif self.major_fw_version >= 7:
             self.ds["health7"] = parse_api(
                 data=self.ds["health7"],
                 source=self.api.query("/system/health"),
@@ -1603,6 +1633,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             if self.ds["health7"]:
                 for uid, vals in self.ds["health7"].items():
                     self.ds["health"][uid] = vals["value"]
+        else:
+            _LOGGER.debug(
+                "Mikrotik %s firmware version unknown (0); skipping system health this cycle",
+                self.host,
+            )
 
     # ---------------------------
     #   get_system_resource
@@ -1663,6 +1698,58 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
 
         if "uptime_epoch" in self.ds["resource"]:
             self.rebootcheck = self.ds["resource"]["uptime_epoch"]
+
+        self._parse_fw_version_from_resource()
+
+    # ---------------------------
+    #   _parse_fw_version_from_resource
+    # ---------------------------
+    def _parse_fw_version_from_resource(self) -> None:
+        """Parse current firmware version from /system/resource.version.
+
+        The current installed version is read-accessible to any user with the
+        `read` policy bit (no write/policy/reboot required). Running this after
+        get_system_resource() populates self.ds["resource"] ensures
+        major_fw_version is set in time for get_capabilities() to dispatch
+        correctly, even when get_firmware_update() short-circuits on its
+        permission gate (read-only service users).
+
+        Skips if major_fw_version is already non-zero. For users with the full
+        permission set, get_firmware_update() runs first in the hwinfo refresh
+        order and is authoritative; on subsequent normal polling cycles (where
+        only get_system_resource runs) the early-return defends against
+        re-parsing a value already set in a prior cycle — major_fw_version is
+        sticky across cycles once populated.
+        """
+        if self.major_fw_version > 0:
+            return
+        full_version = self.ds["resource"].get("version")
+        if not full_version or full_version == "unknown":
+            _LOGGER.debug(
+                "Mikrotik %s firmware version unavailable from /system/resource (got %r); capability detection deferred until it is",
+                self.host,
+                full_version,
+            )
+            return
+        try:
+            version = re.sub("[^0-9\\.]", "", full_version.split()[0])
+            version_parts = version.split(".")
+            self.major_fw_version = int(version_parts[0])
+            self.minor_fw_version = int(version_parts[1]) if len(version_parts) > 1 else 0
+            _LOGGER.debug(
+                "Mikrotik %s FW version major=%s minor=%s (%s; from /system/resource)",
+                self.host,
+                self.major_fw_version,
+                self.minor_fw_version,
+                full_version,
+            )
+        except (ValueError, IndexError) as e:
+            _LOGGER.warning(
+                "Mikrotik %s unable to determine FW version from '%s' (%s); capability detection may be incomplete until next successful parse",
+                self.host,
+                full_version,
+                e,
+            )
 
     # ---------------------------
     #   get_firmware_update
@@ -1828,6 +1915,16 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 {"name": "value"},
             ],
         )
+
+        # RouterOS global script variables can exist with an empty value (e.g.
+        # defconfMode set by the default-config script). Empty-string is not a
+        # valid HA sensor state — coerce to None so the entity reads "unknown"
+        # rather than "", and so _skip_environment_sensor can drop value-less
+        # variables entirely. See ISS-260608-env-sensor-empty-state.
+        for env in self.ds["environment"].values():
+            value = env.get("value")
+            if value is None or (isinstance(value, str) and value.strip() == ""):
+                env["value"] = None
 
     # ---------------------------
     #   get_captive
@@ -2702,6 +2799,37 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
 
         if mac_tasks:
             await asyncio.gather(*mac_tasks)
+
+        self._disambiguate_duplicate_hostnames()
+
+    # ---------------------------
+    #   _disambiguate_duplicate_hostnames
+    # ---------------------------
+    def _disambiguate_duplicate_hostnames(self) -> None:
+        """Append the MAC to host-names shared by more than one host.
+
+        Some devices report a non-unique DHCP hostname (e.g. the lwIP stack
+        default "lwip0" on ESP-class IoT devices), so several distinct MACs share
+        one display name and HA disambiguates them with _2/_3 entity_id suffixes.
+        When a host-name is shared, append the MAC for a distinct, stable name.
+
+        Runs at the end of async_process_host (before client_traffic is built by
+        either _init_accounting_hosts (fw<7) or process_kid_control_devices (fw>=7),
+        both of which copy host-name), so device_tracker and client_traffic sensors
+        all inherit the disambiguated name. unique_id keys on mac-address, so it is
+        unchanged and existing entity_ids are preserved. See ADR-013.
+
+        Idempotent across polls: host-name is re-read raw from the API each cycle,
+        and suffixed names are unique per MAC (count == 1), so they never re-suffix.
+        """
+        counts: dict[str, int] = {}
+        for vals in self.ds["host"].values():
+            counts[vals["host-name"]] = counts.get(vals["host-name"], 0) + 1
+
+        for uid, vals in self.ds["host"].items():
+            mac = vals["mac-address"]
+            if counts.get(vals["host-name"], 0) > 1 and mac != "unknown":
+                self.ds["host"][uid]["host-name"] = f"{vals['host-name']} ({mac})"
 
     # ---------------------------
     #   process_accounting

@@ -21,6 +21,19 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
+## What's New — v2.3.19
+
+Stable release rolling up the read-only and quality-scale fixes from the dev cycle since v2.3.18. Validated live against a multi-device RouterOS deployment before tagging.
+
+- **Read-only users now get wireless / CAPsMAN / PPP data.** On RouterOS 7.x, an HA user without `write`/`policy`/`reboot` rights previously saw zero wireless clients because the firmware version (needed for capability detection) was only read on a write-gated path. The version is now read from `/system/resource` as well, so detection works without granting write access. Thanks to @ahharvey for the fix and wifi-qcom testing. Addresses #82.
+- **Reauthentication flow.** If your router credentials change, re-enter them via Home Assistant's standard reauth prompt instead of removing and re-adding the integration.
+- **Cleaner entity names.** Distinct device-trackers and per-VLAN DHCP-server sensors no longer collide into `_2`/`_3` entity IDs (e.g. several devices all reporting the DHCP hostname `lwip0`). `unique_id`s are unchanged, so existing entity IDs and automations are preserved. See [ADR-013](docs/decisions/ADR-013-entity-naming-disambiguation.md).
+- **Environment sensors no longer get stuck `unavailable`.** RouterOS global script variables that are empty or transient (e.g. `defconfMode`, cleared on reboot) no longer produce empty-state or orphaned entities.
+- **HA Quality Scale: Silver.** Bronze + Silver tiers met and declared — typed `runtime_data`, per-platform `PARALLEL_UPDATES`, and the reauthentication flow.
+- **More diagnosable firmware detection.** Version-gated polling paths now log at debug instead of silently doing nothing while the firmware version is briefly unknown.
+- **Quality & process.** Documented release validation — the CI test suite **plus a live, per-sensor-class cross-check against real RouterOS hardware** — and the review gates (multi-agent audit panels + specialized review passes). See [docs/release-validation.md](docs/release-validation.md).
+- Internal: test-suite hardening (real-typed test factories) and CI resilience (actionlint retry).
+
 ## What's New — v2.3.18
 
 CAPsMAN now works on RouterOS 7.13+ devices that still run the legacy `wireless` package. Wireless clients on those setups weren't being detected before; they are now.

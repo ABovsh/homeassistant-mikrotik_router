@@ -1,5 +1,6 @@
 """Unit tests for Mikrotik Router coordinator and apiparser logic."""
 
+import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +18,7 @@ from custom_components.mikrotik_router.coordinator import (
 )
 from custom_components.mikrotik_router.const import (
     CONF_SCAN_INTERVAL,
+    CONF_SENSOR_CLIENT_TRAFFIC,
     CONF_SENSOR_POE,
     CONF_SENSOR_PORT_TRAFFIC,
     CONF_TRACK_IFACE_CLIENTS,
@@ -298,6 +300,19 @@ def test_health_fw7_flattens_name_value_pairs():
     assert coordinator.ds["health"]["poe-in-voltage"] == pytest.approx(48.0)
 
 
+def test_health_v0_unknown_skips_and_logs(caplog):
+    """FW version 0 (unknown): system health is skipped, not silently no-op'd."""
+    coordinator = make_coordinator(major_fw_version=0)
+    coordinator.host = "10.0.0.1"
+
+    with caplog.at_level(logging.DEBUG):
+        coordinator.get_system_health()
+
+    assert coordinator.ds["health"] == {}
+    assert coordinator.ds["health7"] == {}
+    assert "skipping system health" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # Group C: option_sensor_poe property + PoE parse_api merge
 # ---------------------------------------------------------------------------
@@ -418,6 +433,111 @@ def make_coordinator_for_host(arp_entries=None, dhcp_entries=None, host_entries=
     coordinator.ds["hostspot_host"] = {}
 
     return coordinator
+
+
+# ---------------------------------------------------------------------------
+# _disambiguate_duplicate_hostnames (ADR-013)
+# ---------------------------------------------------------------------------
+
+
+def _host(mac, host_name, address="192.168.88.1"):
+    return {"mac-address": mac, "host-name": host_name, "address": address}
+
+
+def test_disambiguate_appends_mac_for_shared_hostname():
+    """Distinct MACs reporting the same host-name (e.g. lwIP 'lwip0') get the MAC
+    appended, yielding distinct, stable display names."""
+    coord = make_coordinator()
+    coord.ds["host"] = {
+        "B0:F8:93:DE:60:AD": _host("B0:F8:93:DE:60:AD", "lwip0"),
+        "C0:F8:53:9C:E6:E3": _host("C0:F8:53:9C:E6:E3", "lwip0"),
+    }
+    coord._disambiguate_duplicate_hostnames()
+    names = [v["host-name"] for v in coord.ds["host"].values()]
+    assert names == ["lwip0 (B0:F8:93:DE:60:AD)", "lwip0 (C0:F8:53:9C:E6:E3)"]
+    assert len(set(names)) == 2  # distinct
+
+
+def test_disambiguate_leaves_unique_hostname_unchanged():
+    coord = make_coordinator()
+    coord.ds["host"] = {
+        "AA:BB:CC:00:00:01": _host("AA:BB:CC:00:00:01", "mypc"),
+        "AA:BB:CC:00:00:02": _host("AA:BB:CC:00:00:02", "lwip0"),
+        "AA:BB:CC:00:00:03": _host("AA:BB:CC:00:00:03", "lwip0"),
+    }
+    coord._disambiguate_duplicate_hostnames()
+    assert coord.ds["host"]["AA:BB:CC:00:00:01"]["host-name"] == "mypc"  # unique → untouched
+    assert coord.ds["host"]["AA:BB:CC:00:00:02"]["host-name"] == "lwip0 (AA:BB:CC:00:00:02)"
+
+
+def test_disambiguate_distinct_mac_fallbacks_not_suffixed():
+    """Two hosts that fell back to their own MAC have distinct host-names already,
+    so they are not 'shared' and must not be double-suffixed."""
+    coord = make_coordinator()
+    coord.ds["host"] = {
+        "AA:BB:CC:00:00:01": _host("AA:BB:CC:00:00:01", "AA:BB:CC:00:00:01"),
+        "AA:BB:CC:00:00:02": _host("AA:BB:CC:00:00:02", "AA:BB:CC:00:00:02"),
+    }
+    coord._disambiguate_duplicate_hostnames()
+    assert coord.ds["host"]["AA:BB:CC:00:00:01"]["host-name"] == "AA:BB:CC:00:00:01"
+    assert coord.ds["host"]["AA:BB:CC:00:00:02"]["host-name"] == "AA:BB:CC:00:00:02"
+
+
+def test_disambiguate_skips_unknown_mac():
+    """A shared host-name with no usable MAC cannot be disambiguated → left as-is."""
+    coord = make_coordinator()
+    coord.ds["host"] = {
+        "h1": {"mac-address": "unknown", "host-name": "lwip0", "address": "x"},
+        "h2": {"mac-address": "unknown", "host-name": "lwip0", "address": "y"},
+    }
+    coord._disambiguate_duplicate_hostnames()
+    assert coord.ds["host"]["h1"]["host-name"] == "lwip0"
+    assert coord.ds["host"]["h2"]["host-name"] == "lwip0"
+
+
+def test_disambiguate_is_idempotent():
+    """Re-running must not append the MAC twice (suffixed names are unique → count 1)."""
+    coord = make_coordinator()
+    coord.ds["host"] = {
+        "B0:F8:93:DE:60:AD": _host("B0:F8:93:DE:60:AD", "lwip0"),
+        "C0:F8:53:9C:E6:E3": _host("C0:F8:53:9C:E6:E3", "lwip0"),
+    }
+    coord._disambiguate_duplicate_hostnames()
+    coord._disambiguate_duplicate_hostnames()
+    assert coord.ds["host"]["B0:F8:93:DE:60:AD"]["host-name"] == "lwip0 (B0:F8:93:DE:60:AD)"
+
+
+def test_disambiguated_name_propagates_to_client_traffic_fw_lt7():
+    """fw<7 path: _init_accounting_hosts copies the disambiguated host-name."""
+    coord = make_coordinator(major_fw_version=6)
+    coord.ds["host"] = {
+        "B0:F8:93:DE:60:AD": {
+            "mac-address": "B0:F8:93:DE:60:AD",
+            "host-name": "lwip0 (B0:F8:93:DE:60:AD)",
+            "address": "192.168.88.71",
+        }
+    }
+    coord.ds["client_traffic"] = {}
+    coord._init_accounting_hosts()
+    assert coord.ds["client_traffic"]["B0:F8:93:DE:60:AD"]["host-name"] == "lwip0 (B0:F8:93:DE:60:AD)"
+
+
+def test_disambiguated_name_propagates_to_client_traffic_fw_ge7():
+    """fw>=7 path (the live RouterOS-7 path): process_kid_control_devices copies it."""
+    coord = make_coordinator(major_fw_version=7)
+    coord.ds["host"] = {
+        "B0:F8:93:DE:60:AD": {
+            "mac-address": "B0:F8:93:DE:60:AD",
+            "host-name": "lwip0 (B0:F8:93:DE:60:AD)",
+            "address": "192.168.88.71",
+        }
+    }
+    coord.ds["client_traffic"] = {}
+    coord.notified_flags = []
+    coord.api.query = MagicMock(return_value=[])  # no kid-control data → early return after copy
+    coord.api.take_client_traffic_snapshot = MagicMock(return_value=0)
+    coord.process_kid_control_devices()
+    assert coord.ds["client_traffic"]["B0:F8:93:DE:60:AD"]["host-name"] == "lwip0 (B0:F8:93:DE:60:AD)"
 
 
 @pytest.mark.asyncio
@@ -2502,6 +2622,28 @@ def test_environment_basic_parsing():
     assert coordinator.ds["environment"]["count"]["value"] == "42"
 
 
+def test_environment_empty_value_coerced_to_none():
+    """Empty / whitespace env values are coerced to None, real values kept.
+
+    Empty-string is not a valid HA sensor state; coercing to None makes the
+    entity read 'unknown' and lets _skip_environment_sensor drop value-less
+    variables. See ISS-260608-env-sensor-empty-state.
+    """
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/script/environment": [
+                {"name": "defconfMode", "value": ""},
+                {"name": "spaced", "value": "   "},
+                {"name": "real", "value": "yes"},
+            ],
+        }
+    )
+    coordinator.get_environment()
+    assert coordinator.ds["environment"]["defconfMode"]["value"] is None
+    assert coordinator.ds["environment"]["spaced"]["value"] is None
+    assert coordinator.ds["environment"]["real"]["value"] == "yes"
+
+
 # ---------------------------------------------------------------------------
 # Group X: get_kidcontrol() — kid control parsing
 # ---------------------------------------------------------------------------
@@ -3289,6 +3431,47 @@ def test_capabilities_ups_and_gps():
     coordinator.get_capabilities()
     assert coordinator.support_ups is True
     assert coordinator.support_gps is True
+
+
+def test_capabilities_v0_unknown_skips_detection_and_logs(caplog):
+    """FW version 0 (unknown): capability detection is skipped, not silently no-op'd."""
+    coordinator = make_coordinator(major_fw_version=0)
+    coordinator.support_ppp = False
+    coordinator.support_capsman = False
+    coordinator.support_wireless = False
+    coordinator.support_ups = False
+    coordinator.support_gps = False
+    coordinator.host = "10.0.0.1"
+    coordinator._wifimodule = "wireless"
+
+    with caplog.at_level(logging.DEBUG):
+        coordinator.get_capabilities()
+
+    assert coordinator.support_capsman is False
+    assert coordinator.support_wireless is False
+    assert coordinator.support_ppp is False
+    assert coordinator._wifimodule == "wireless"
+    assert "skipping capability detection" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_client_traffic_v0_unknown_skips_and_logs(caplog):
+    """FW version 0 (unknown): client traffic collection is skipped, not silently no-op'd."""
+    coordinator = make_coordinator(
+        major_fw_version=0,
+        options={CONF_SENSOR_CLIENT_TRAFFIC: True},
+    )
+    coordinator.host = "10.0.0.1"
+    coordinator.api = MagicMock()
+    coordinator.api.connected.return_value = True
+    coordinator.hass = MagicMock()
+    coordinator.hass.async_add_executor_job = AsyncMock()
+
+    with caplog.at_level(logging.DEBUG):
+        await coordinator._async_update_client_traffic()
+
+    coordinator.hass.async_add_executor_job.assert_not_called()
+    assert "skipping client traffic collection" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -4937,3 +5120,111 @@ def test_has_wifi_package_disabled_wireless_falls_back_to_version():
     coordinator = _make_v7_coordinator(21)
 
     assert coordinator._has_wifi_package({"wireless": {"enabled": False}}) is True
+
+
+# ---------------------------------------------------------------------------
+# Group: _parse_fw_version_from_resource() — read-side FW version (#82)
+#   Read-only users never reach get_firmware_update() (write+policy+reboot
+#   gated), so major_fw_version must also be parseable from the read-only
+#   /system/resource.version. Without it, get_capabilities() never dispatches
+#   and wireless/CAPsMAN/PPP data stays empty.
+# ---------------------------------------------------------------------------
+
+
+def _resource_coordinator(version, major_fw_version=0):
+    coordinator = make_coordinator(major_fw_version=major_fw_version)
+    coordinator.host = "10.0.0.1"
+    if version is not None:
+        coordinator.ds["resource"]["version"] = version
+    return coordinator
+
+
+def test_parse_fw_version_from_resource_reads_major_minor():
+    """A real /system/resource.version string yields major+minor."""
+    coordinator = _resource_coordinator("7.22.3 (stable)")
+
+    coordinator._parse_fw_version_from_resource()
+
+    assert coordinator.major_fw_version == 7
+    assert coordinator.minor_fw_version == 22
+
+
+def test_parse_fw_version_from_resource_no_minor_defaults_zero():
+    """A bare major version parses with minor defaulting to 0."""
+    coordinator = _resource_coordinator("7")
+
+    coordinator._parse_fw_version_from_resource()
+
+    assert coordinator.major_fw_version == 7
+    assert coordinator.minor_fw_version == 0
+
+
+def test_parse_fw_version_from_resource_self_skips_when_already_set():
+    """get_firmware_update() runs first for privileged users; do not re-parse."""
+    coordinator = _resource_coordinator("6.49.10", major_fw_version=7)
+    coordinator.minor_fw_version = 13
+
+    coordinator._parse_fw_version_from_resource()
+
+    # Authoritative privileged parse is preserved, not overwritten.
+    assert coordinator.major_fw_version == 7
+    assert coordinator.minor_fw_version == 13
+
+
+def test_parse_fw_version_from_resource_unknown_version_is_noop():
+    """The parse_api 'unknown' sentinel must not be parsed as a version."""
+    coordinator = _resource_coordinator("unknown")
+
+    coordinator._parse_fw_version_from_resource()
+
+    assert coordinator.major_fw_version == 0
+
+
+def test_parse_fw_version_from_resource_missing_version_is_noop():
+    """No version key (resource not yet populated) leaves the sentinel intact."""
+    coordinator = _resource_coordinator(None)
+
+    coordinator._parse_fw_version_from_resource()
+
+    assert coordinator.major_fw_version == 0
+
+
+def test_parse_fw_version_from_resource_malformed_is_noop():
+    """A non-numeric version is swallowed without raising or setting a value."""
+    coordinator = _resource_coordinator("garbage")
+
+    coordinator._parse_fw_version_from_resource()
+
+    assert coordinator.major_fw_version == 0
+
+
+def test_readonly_capability_cascade_unblocked_end_to_end():
+    """#82: read-side version parse lets get_capabilities() dispatch on a
+    wifi-qcom router under a user without write/policy/reboot — the helper
+    runs at the tail of get_system_resource(), before get_capabilities()."""
+    coordinator = make_coordinator(
+        major_fw_version=0,
+        api_responses={
+            "/system/package": [
+                {"name": "wifi-qcom", "disabled": False},
+            ],
+        },
+    )
+    coordinator.ds["access"] = ["read", "api", "sensitive"]
+    coordinator.ds["resource"]["version"] = "7.22.3 (stable)"
+    coordinator.host = "10.0.0.1"
+    coordinator.support_ppp = False
+    coordinator.support_capsman = False
+    coordinator.support_wireless = False
+    coordinator.support_ups = False
+    coordinator.support_gps = False
+    coordinator._wifimodule = "wireless"
+
+    # Order mirrors _async_update_hwinfo: resource parse, then capabilities.
+    coordinator._parse_fw_version_from_resource()
+    coordinator.get_capabilities()
+
+    assert coordinator.major_fw_version == 7
+    assert coordinator.support_wireless is True
+    assert coordinator._wifimodule == "wifi"
+    assert coordinator.support_capsman is False

@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from logging import getLogger
 from typing import Any, Callable, TypeVar
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_NAME, CONF_HOST
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
@@ -32,7 +31,7 @@ from .const import (
     CONF_SENSOR_POE,
     DEFAULT_SENSOR_POE,
 )
-from .coordinator import MikrotikCoordinator, MikrotikTrackerCoordinator
+from .coordinator import MikrotikConfigEntry, MikrotikCoordinator, MikrotikTrackerCoordinator
 from .helper import format_attribute
 from .iface_attributes import (
     DEVICE_ATTRIBUTES_IFACE_CLIENT,
@@ -113,6 +112,7 @@ def _skip_sensor(config_entry, entity_description, data, uid) -> bool:
         or _skip_binary_sensor(config_entry, entity_description, data, uid)
         or _skip_device_tracker(config_entry, entity_description)
         or _skip_poe_sensor(config_entry, entity_description, data, uid)
+        or _skip_environment_sensor(entity_description, data, uid)
     )
 
 
@@ -173,6 +173,23 @@ def _skip_poe_sensor(config_entry, entity_description, data, uid) -> bool:
     return False
 
 
+def _skip_environment_sensor(entity_description, data, uid) -> bool:
+    """Skip environment sensors whose RouterOS variable carries no value.
+
+    `/system/script/environment` lists global script variables, some of which are
+    transient (e.g. ``defconfMode`` set by the default-config script, then cleared)
+    and RAM-only — wiped on reboot. A value-less variable yields a sensor that is
+    empty now and orphaned/unavailable once the variable disappears, so only expose
+    variables that actually hold a value. (get_environment already coerces empty
+    values to None; the string check guards direct/legacy data.)
+    See ISS-260608-env-sensor-empty-state.
+    """
+    if entity_description.data_path != "environment":
+        return False
+    value = data[uid].get(entity_description.data_attribute)
+    return value is None or (isinstance(value, str) and value.strip() == "")
+
+
 # ---------------------------
 #   _check_entity_exists
 # ---------------------------
@@ -222,7 +239,7 @@ async def _run_entity_setup_loop(  # pragma: no cover
 #   async_add_entities
 # ---------------------------
 async def async_add_entities(  # pragma: no cover
-    hass: HomeAssistant, config_entry: ConfigEntry, dispatcher: dict[str, Callable]
+    hass: HomeAssistant, config_entry: MikrotikConfigEntry, dispatcher: dict[str, Callable]
 ):
     """Add entities."""
     platform = ep.async_get_current_platform()
@@ -237,7 +254,7 @@ async def async_add_entities(  # pragma: no cover
         """Update the values of the controller."""
         await _run_entity_setup_loop(hass, platform, config_entry, dispatcher, descriptions, coordinator)
 
-    await async_update_controller(hass.data[DOMAIN][config_entry.entry_id].data_coordinator)
+    await async_update_controller(config_entry.runtime_data.data_coordinator)
 
     unsub = async_dispatcher_connect(hass, "update_sensors", async_update_controller)
     config_entry.async_on_unload(unsub)
@@ -304,7 +321,12 @@ class MikrotikEntity(CoordinatorEntity[_MikrotikCoordinatorT], Entity):
             return f"{self._data['comment']}"
 
         if self.entity_description.name:
-            if self._data[self.entity_description.data_reference] == self._data[self.entity_description.data_name]:
+            # data_name_compose forces composition where data_name == data_reference
+            # would otherwise collapse to the static name (e.g. per-VLAN DHCP servers
+            # on the one System device). Other platforms' descriptions lack the field,
+            # so read it defensively. See ADR-013.
+            compose = getattr(self.entity_description, "data_name_compose", False)
+            if not compose and self._data[self.entity_description.data_reference] == self._data[self.entity_description.data_name]:
                 return f"{self.entity_description.name}"
 
             return f"{self._data[self.entity_description.data_name]} {self.entity_description.name}"

@@ -4,6 +4,345 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-release-v2.3.19 — stable v2.3.19 + branch-sync gate
+
+**Date:** 2026-06-14
+**Branch:** `dev → master` (fast-forward); GitHub Release `v2.3.19`
+**Status:** Released
+
+### What changed
+- Version `2.3.19-beta.2 → 2.3.19` (`manifest.json`); README/info.md "What's New — v2.3.19" rolling up the cycle (read-only #82, reauth #89, entity-naming ADR-013, **env-sensor fix #105**, Silver) plus a **Quality & process** entry referencing the release-validation + review-gates docs (#106).
+- **New CI gate** `.github/workflows/branch-sync-guard.yml` + `docs/quality-gates.md` "Branch model": enforces the invariant **`master` ⊆ `dev`** (fast-forward releases; PRs to master must come from dev) to end the recurring dev/master drift.
+- Reconciled `master → dev` (back-merged #104's issue-68 docs close-out) so `dev ⊇ master` before the cut.
+
+### Why
+Cut the stable that `v2.3.19-beta.2` was validating, and add a guardrail so `dev`/`master` can't silently diverge again (the `v2.3.18` tag wasn't even an ancestor of `master`).
+
+### Release ops
+Fast-forward `dev → master`; publish GitHub Release `v2.3.19` (not pre-release) → `release.yml` (trigger `release: published`) builds the zip.
+
+### Open
+`#82` (read-only capability detection) ships **fixed** but stays **OPEN** — reporter (@ahharvey) unresponsive after two pings, and our own live read-only test was inconclusive (contaminated by session churn; a read-only setup failure was observed but not isolated). Validate via a clean integration-reload test or reporter confirmation before closing.
+
+---
+
+## CR-260614-fix-env-sensor-empty-state — environment sensor empty value → None + skip value-less vars
+
+**Date:** 2026-06-14
+**Branch:** `fix/env-sensor-empty-state` → PR to `dev`
+**Status:** In Review (target stable `v2.3.19`)
+
+### What changed
+- `coordinator.py` — `get_environment()` now coerces empty/whitespace variable values to `None` after parsing `/system/script/environment`, so the sensor reads `unknown` instead of the invalid `''` state (incl. when a live entity's variable later empties).
+- `entity.py` — new `_skip_environment_sensor()` wired into `_skip_sensor()`; skips entity creation for value-less environment variables so transient/RAM-only globals don't create orphan-prone entities.
+- `tests/test_coordinator.py` — `test_environment_empty_value_coerced_to_none`.
+- `tests/test_entity.py` — `test_skip_environment_sensor_when_value_none` / `_empty_string` / `_whitespace` / `test_no_skip_environment_sensor_when_value_present`.
+
+### Why
+Resolves `ISS-260608-env-sensor-empty-state`. Confirmed live (2026-06-14) via the `ha-query` MCP + SSH: `sensor.mikrotik_hapax3_environment_defconfmode` was stuck `unavailable`/`restored` because `defconfMode` is a RouterOS global *script* variable — RAM-only, wiped on reboot (hap_ax3 rebooted ~06-13; `/system/script/environment` now empty). Empty-string is not a valid HA state; coercing to `None` fixes the state-convention inconsistency, and skipping value-less variables avoids creating the orphan-prone entity in the first place.
+
+### Verification
+Full pytest suite green: **621 passed, 5 skipped** (py3.14 in Docker on the Ubuntu/WSL2 runner). New tests confirmed collected+passing: `test_environment_empty_value_coerced_to_none` (coordinator) + 4× `test_skip_environment_sensor_*` (entity). `code-simplifier` + `silent-failure-hunter` agents: PASS (no changes recommended). Live behaviour validated via `ha-query` MCP + SSH cross-check (per the internal validation doc `config/docs/internal/2026-06-14-mikrotik-sensor-validation-v2.3.19-beta.2.md`). CI (py3.13 + 3.14) to confirm on push.
+
+### Release ops
+Lands on `dev`; ships in stable `v2.3.19` (no manifest bump in this CR — version bump is the release step `2.3.19-beta.2 → 2.3.19`).
+
+---
+
+## CR-260608-release-v2.3.19-beta.2 — pre-release for validation of the v2.3.19 roll-up
+
+**Date:** 2026-06-08
+**Branch:** `chore/release-v2.3.19-beta.2` → PR to `dev`
+**Status:** Pre-release — pre-release tag `v2.3.19-beta.2` cut from `dev` for validation before the stable `v2.3.19` (dev→master).
+
+### What Changed
+- `manifest.json` version `2.3.18 → 2.3.19-beta.2`.
+- `README.md`, `info.md` — `v2.3.19-beta.2` What's New rolling up the cycle's user-facing changes.
+
+### Why
+Cut a pre-release (`v2.3.19-beta.2`) so beta-opted HACS users can validate the rolled `dev` state — read-only fw-version capability detection (#82, @ahharvey), reauthentication flow (#89), entity-naming (#94/ADR-013), `quality_scale: silver`, and the §2.1 fw-version fall-through fixes (#97) — before the stable `v2.3.19` is tagged on `master`. (`v2.3.19-beta.1` was cut and deleted earlier this cycle; this is beta.2.)
+
+### Release ops
+Stable `v2.3.19` will bump `2.3.19-beta.2 → 2.3.19`, merge `dev→master`, and tag on `master` (not pre-release), crediting @ahharvey in the What's New.
+
+---
+
+## CR-260608-fw-version-silent-fallthrough — handle unknown firmware version (0) in fw-gated paths (§2.1)
+
+**Date:** 2026-06-08
+**Branch:** `fix/fw-version-silent-fallthrough` → PR to `dev`
+**Status:** In Review
+
+### What changed
+- `coordinator.py` — three `major_fw_version`-gated methods silently no-op'd when the version is `0`; each now has an explicit `else:` that logs at **DEBUG**:
+  - `get_capabilities` (`:519`) — capability detection was skipped, leaving `support_*` flags at defaults silently.
+  - `_async_update_client_traffic` (`:764`) — client-traffic collection was skipped silently.
+  - `get_system_health` (`:1597`) — fixed the malformed chained comparison `elif 0 < self.major_fw_version >= 7` → `elif self.major_fw_version >= 7` (the `0 <` clause was dead; the bug was the `else`-less skip at v0), plus the new `else` log.
+- `tests/test_coordinator.py` — added `major_fw_version=0` cases for all three methods (caplog asserts the no-op is logged and state is unchanged). Existing v7 health tests cover the elif fix.
+
+### Why
+`major_fw_version` initialises to `0` (`coordinator.py:324`) and is only set in `get_firmware_update` (`:1719`), which early-returns for accounts lacking write/policy/reboot and leaves `0` on a firmware-parse failure. So `0` is a real runtime state (primarily read-only accounts), in which capability detection, client-traffic and health silently did nothing with no diagnostic. Resolves `ISS-260608-fw-version-silent-fallthrough` (§2.1).
+
+### Log level
+DEBUG, not WARNING: on a read-only account the version never self-heals, so a per-30s-poll warning would spam. The contributor read-only fw-version fix (#82) addresses the *reachability* at source; this change makes the residual (parse-failure) case observable rather than silent. Coordinated to land alongside #82 in the v2.3.19 roll-up.
+
+### Verification
+Full suite **609 passed, 5 skipped** under `python:3.14` (WSL-local runner on twentyone); ruff lint + format clean (local 0.11.4; CI pins 0.9.0). coordinator-reviewer agent: PASS (one NIT fixed — `@pytest.mark.asyncio` added for consistency). 3.13 + 3.14 green in CI (#97).
+
+---
+
+## CR-260608-issue-82-readonly-fw-version — read-only users get capability detection on RouterOS 7.x
+
+**Date:** 2026-06-08
+**Branch:** core fix in PR [#81](https://github.com/jnctech/homeassistant-mikrotik_router/pull/81) (`ahharvey:fix/major-fw-version-readonly-fallback`, **merged to `dev`** via merge commit `3b14465`, authorship preserved); maintainer hardening (tests + log + docs) in `fix/issue-82-hardening` → PR to `dev`.
+**Status:** Core fix merged (#81); hardening In Review. Version bump deferred to the rolled `v2.3.19` release (crediting @ahharvey there).
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | New `_parse_fw_version_from_resource()` parses `major`/`minor_fw_version` from the read-only `/system/resource.version`, called at the tail of `get_system_resource()`. Self-skips when `major_fw_version > 0`, so `get_firmware_update()` (write-gated) stays authoritative for privileged users. *(ahharvey, #81)* |
+| `coordinator.py` | **Hardening:** DEBUG log when `/system/resource.version` is unavailable/`unknown` — a silent-failure-hunter finding; the falsy/`unknown` early-return otherwise degraded to default capability detection with no log signal. |
+| `tests/test_coordinator.py` | **Hardening:** 7 tests — major/minor parse, bare-major default, privileged self-skip, `unknown`/missing/malformed no-ops, and an end-to-end read-only cascade (wifi-qcom under a `read,api,sensitive` user → `_wifimodule="wifi"`, `support_wireless=True`). |
+| `docs/ISSUES.md` | New `ISS-260608-readonly-capability-detection`. |
+
+### Why
+
+On RouterOS 7.x, `major_fw_version` had only one writer outside `__init__` — `get_firmware_update()`, which early-returns when the user lacks `write`+`policy`+`reboot`. Under a read-only HA user it stayed `0`, so `get_capabilities()` (dispatch gated on `major_fw_version`) never ran: `support_wireless`/`support_capsman`/`support_ppp` kept defaults and `_wifimodule` stayed `"wireless"`, querying `/interface/wireless/registration-table` — which returns `400 "no such command or directory (wireless)"` on wifi-qcom. The current firmware version is read-accessible at `/system/resource.version`, so parsing it there (before `get_capabilities()` in the hwinfo loop) restores detection without granting write access; the `check-for-updates` action and `update.*` entities remain write-gated. Relates to `ISS-260608-fw-version-silent-fallthrough` (§2.1) which makes the *downstream* consumers diagnosable when the version is still unknown.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Pytest | Full suite **613 passed, 5 skipped** under `python:3.14` (WSL2 runner) on the hardening branch (dev + #81 + hardening). | ✅ |
+| Ruff | lint + format clean (local 0.11.4; CI pins 0.9.0). | ✅ |
+| ADR | None — internal version-sourcing change, not a data-format / entity-identity / API-contract change. | n/a |
+
+---
+
+## CR-260608-spec-entity-description — real-typed entity-description test factory (test-hardening pass #1a)
+
+**Date:** 2026-06-08
+**Branch:** `test/spec-entity-description` → PR to `dev`
+**Status:** In Review
+
+### What changed
+- `tests/conftest.py::make_mock_entity_description` now builds the **real** `Mikrotik*EntityDescription` dataclass (parameterised by platform `cls`, defaults filtered to the class's fields, overrides passed through) instead of a specless `MagicMock`. A field that doesn't exist on the platform's description now raises `TypeError` rather than silently passing on an auto-created Mock attribute.
+- The 5 non-sensor module helpers (`test_switch/update/binary_sensor/button/device_tracker`) pass their platform description class; `test_entity`'s generic `MikrotikEntity` tests keep the sensor default.
+
+### Why
+T2 in `docs/internal/test-suite-review-2026-06-08.md` — yes-man description mocks hide renamed/removed fields. First slice of `ENH-260608-test-suite-hardening` (pre-release deliverable). Surfaced (and fixed) that the switch/update tests were building sensor-typed descriptions.
+
+### Verification
+Full suite **606 passed, 5 skipped** under `python:3.14` (WSL-local); ruff format + lint clean. The larger `make_mock_coordinator` `spec=` pass (96 sites) is tracked separately under the ENH.
+
+---
+
+## CR-260608-entity-naming — disambiguate colliding client + DHCP-server entity names (ADR-013)
+
+**Date:** 2026-06-08
+**Branch:** `feature/entity-naming` → PR to `dev`
+**Status:** In Review
+
+### What changed
+- **Clients:** new `coordinator.py::_disambiguate_duplicate_hostnames()` (called at end of `async_process_host`) appends the MAC to any `host-name` shared by >1 host → `"{host-name} ({mac})"`. Both client_traffic copy sites inherit it: `_init_accounting_hosts` (fw<7) and `process_kid_control_devices` (fw≥7).
+- **DHCP servers:** new scoped descriptor flag `data_name_compose` on `MikrotikSensorEntityDescription`, set only on `dhcp_server_status` / `dhcp_server_lease_count`; `entity.py::custom_name` honours it to bypass the `data_name==data_reference` equality shortcut → `"{name} DHCP server"`.
+- **Tests:** `tests/test_coordinator.py` (7 cases: shared→suffixed, unique untouched, distinct-MAC-fallback not suffixed, unknown-MAC skip, idempotent, both fw paths propagate) and `tests/test_entity.py` (compose override + scope guard, built from the **real** description dataclass per the test-hardening standard). `conftest.py` mock default updated for the new field.
+
+### Root cause (live-verified, corrected the resume brief)
+Recorder-DB evidence on the running v2.3.18 box showed the client collisions are **non-unique DHCP hostnames** (`lwip0` = lwIP stack default across 6 MACs; `interface`=`bridge`), **not** interface-naming as the brief assumed. DHCP collisions are the `entity.py:306` equality shortcut dropping the distinct per-VLAN `name`. Full analysis + independent-review findings: `docs/decisions/ADR-013-entity-naming-disambiguation.md`.
+
+### Non-breaking
+`unique_id` is unchanged in both families (mac-address / name), so existing entity_ids and automations are preserved; only friendly names + *new* entities change. No migration.
+
+### Notes / cite-or-null
+- Independent review caught and the ADR/impl fixed a v7-path miss (`process_kid_control_devices` is the live RouterOS-7 client_traffic copy site, not `_init_accounting_hosts`).
+- Resolves `ENH-260608-entity-naming`. Netwatch naming (jnctech #70) tracked separately as `ENH-260608-netwatch-naming` (same mechanism, needs `get_netwatch` to parse `name` + a precedence decision).
+- Verified: full suite **606 passed, 5 skipped** under `python:3.14` (WSL-local runner); CI covers 3.13 + 3.14.
+
+---
+
+## CR-260608-actionlint-pin-retry — harden the actionlint CI step against transient 504s
+
+**Date:** 2026-06-08
+**Branch:** `ci/actionlint-pin-retry` → PR to `dev`
+**Status:** In Review
+
+### What changed
+- `.github/workflows/ci.yml` `lint-actions` job: the actionlint binary was downloaded via `curl … | tar -xz` (a pipe, no retry). A GitHub CDN **504** corrupted the stream and failed the job — observed on multiple pushes 2026-06-08, each needing a manual re-run.
+- Now: download to a file with `curl --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused`, verify the **pinned SHA256** (`023070a…0757` for `actionlint_1.7.7_linux_amd64.tar.gz`, from the official release checksums), then extract. `set -euo pipefail` so any step fails loudly.
+
+### Why
+Transient registry/CDN errors were turning a deterministic lint into a flaky gate. Retries recover from the 504; the checksum keeps the supply-chain posture consistent with the repo's SHA-pinned `uses:` actions.
+
+---
+
+## CR-260608-declare-quality-scale — declare `quality_scale: silver` in manifest
+
+**Date:** 2026-06-08
+**Branch:** `feature/declare-quality-scale` → PR to `dev`
+**Status:** In Review
+
+### What changed
+- `custom_components/mikrotik_router/manifest.json`: added `"quality_scale": "silver"` (alphabetical key position, between `issue_tracker` and `requirements`).
+
+### Why
+Bronze and Silver Integration Quality Scale rules are met as of the conformance work this session (parallel-updates, runtime-data, reauthentication-flow merged in #84/#85/#89; scorecard reviewed 2026-06-08 — see `ENH-260608-quality-scale-conformance`). Declaring the tier in the manifest records the achieved level.
+
+### Notes / cite-or-null
+- This is a **fork** of the unmaintained `tomaae/homeassistant-mikrotik_router`; the original (not this fork) is the HACS-store-listed copy, so `quality_scale` here is a conformance signal rather than a store gate.
+- hassfest validates the manifest key order and the `quality_scale` value — **verified PASS** via the `Check hassfest` CI job on PR #91 (run 27123239920). No `quality_scale.yaml` rules file is required for this custom integration.
+- Remaining tiers (Gold `reconfiguration-flow`, Platinum `strict-typing`) are tracked under the conformance ENH, to land with the coordinator decomposition.
+
+---
+
+## CR-260608-reauthentication-flow — re-auth on invalid credentials (quality-scale Silver)
+
+**Date:** 2026-06-08
+**Branch:** `feature/reauthentication-flow` → PR to `dev`
+**Status:** In Review
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | New `_raise_disconnected()`: raises `ConfigEntryAuthFailed` when `api.error == "wrong_login"` (→ HA starts the reauth flow), else `UpdateFailed` (transient). Both disconnect sites call it. |
+| `config_flow.py` | `async_step_reauth` + `async_step_reauth_confirm` re-prompt for credentials and validate via a shared `_validate_connection()` helper (also used by `async_step_user`); success → `async_update_reload_and_abort`. |
+| `strings.json`, `translations/en.json` | `reauth_confirm` step + `reauth_successful` abort. |
+| `tests/test_config_flow.py` | 2 tests — reauth updates credentials (→ abort `reauth_successful`); wrong_login re-shows the form with the error. |
+
+### Why
+
+Closes the HA Integration Quality-Scale **Silver `reauthentication-flow`** rule. Previously, invalid credentials (e.g. a rotated RouterOS password) left the integration retrying `UpdateFailed` forever with no prompt; now HA surfaces a re-auth dialog. The API already distinguished `wrong_login` from connection failure, so only the wiring was missing.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint + format | All checks passed | ✅ |
+| JSON validity | `strings.json` + `en.json` valid | ✅ |
+| Pytest | 597 passed, 5 skipped (devbox `python:3.13`, clean `__pycache__`) | ✅ |
+| Pre-PR review | Light pass (session-end context) — self-reviewed; the contained error-handling change (`_raise_disconnected`) only narrows one `UpdateFailed` to `ConfigEntryAuthFailed`. Full agent gate can run on the PR. | ~ |
+| ADR | None — standard HA reauth pattern, no contract change | n/a |
+
+---
+
+## CR-260608-test-sensor-exemplar — rework test_sensor.py as the test-quality reference
+
+**Date:** 2026-06-08
+**Branch:** `feature/test-sensor-exemplar` → PR to `dev`
+**Status:** In Review
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `tests/test_sensor.py` | Rewritten as the reference implementation for the test-suite review: local `MagicMock(spec=MikrotikCoordinator)` + the real `MikrotikSensorEntityDescription` (no yes-man mocks), `@pytest.mark.parametrize` for the native_value / unit-of-measurement / DHCP cases, a `dhcp_client_data` fixture, and input→output assertions. 12 cases (was 10), ~half the per-case code. |
+
+### Why
+
+First, lowest-risk pass of the test-suite hardening (`ENH-260608-test-suite-hardening`). Provides a concrete pattern the other test modules can be migrated to. Background + findings: `docs/internal/test-suite-review-2026-06-08.md` (internal).
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint + format | All checks passed | ✅ |
+| Pytest | 595 passed, 5 skipped (devbox `python:3.13`, `__pycache__` cleared) | ✅ |
+| Pre-PR gate | code-review: clean — coverage preserved + extended (10→12), no false passes, spec'd mocks verified; silent-failure-hunter / simplifier N/A (test-only) | ✅ |
+| ADR | None — test-only | n/a |
+
+---
+
+## CR-260608-runtime-data — store runtime data on `ConfigEntry.runtime_data` (quality-scale Bronze)
+
+**Date:** 2026-06-08
+**Branch:** `feature/runtime-data` → PR to `dev`
+**Status:** In Review
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `coordinator.py` | New `type MikrotikConfigEntry = ConfigEntry[MikrotikData]`. |
+| `__init__.py` | `async_setup_entry` stores `config_entry.runtime_data`; `_get_mikrotik_data()` resolves via `async_get_entry()` + `isinstance(MikrotikData)` guard, logging not-found vs not-loaded (`entry.state`) distinctly; `async_unload_entry` tears down shared services via `async_loaded_entries()` (`any()` check). |
+| `entity.py`, `device_tracker.py`, `diagnostics.py` | Read coordinators from `config_entry.runtime_data`; entry params typed `MikrotikConfigEntry`; dropped now-dead `DOMAIN`/`ConfigEntry` imports. |
+| `tests/test_init.py` | Migrated setup/unload/`_get_mikrotik_data` **and** the cleanup-service tests to the runtime_data lookup (new `_hass_with_loaded_entry`); `_make_mock_mikrotik_data` builds a real `MikrotikData`. |
+| `docs/decisions/ADR-012-config-entry-runtime-data.md` (new) | Decision record. |
+
+### Why
+
+Satisfies the quality-scale Bronze **`runtime-data`** rule and seeds the typed data model for the planned coordinator decomposition. See ADR-012.
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint + format | All checks passed | ✅ |
+| Pytest | 593 passed, 5 skipped (devbox `python:3.13`, `__pycache__` cleared) | ✅ |
+| Pre-PR gate | code-review (no blockers); silent-failure-hunter (1 MEDIUM applied — split not-found/not-loaded diagnostics); simplifier (typed reload/setup handlers, `any()`) | ✅ |
+| ADR | ADR-012 (storage-contract change) | ✅ |
+
+> A false-green from stale devbox `__pycache__` initially hid 8 broken cleanup-service tests; caught, fixed, and the runbook hardened (clear cache + `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider`).
+
+---
+
+## CR-260608-parallel-updates — declare `PARALLEL_UPDATES` per platform (quality-scale Silver)
+
+**Date:** 2026-06-08
+**Branch:** `feature/parallel-updates` → PR to `dev`
+**Status:** In Review
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| `sensor.py`, `binary_sensor.py`, `device_tracker.py` | `PARALLEL_UPDATES = 0` — read-only platforms; the coordinator centralises all polling, so entity updates do no per-entity device I/O. |
+| `switch.py`, `button.py`, `update.py` | `PARALLEL_UPDATES = 1` — these send commands to the router (switch toggle, button press, `update.async_install`); serialise to avoid simultaneous writes RouterOS can mishandle. |
+
+### Why
+
+Closes the HA Integration Quality-Scale **Silver `parallel-updates`** rule: every platform must explicitly declare update parallelism. Values follow the rule's guidance for coordinator-based integrations (0 for read-only, a limit for command platforms).
+
+### Quality Gate Results
+
+| Metric | Value | Gate |
+|--------|-------|------|
+| Ruff lint + format | All checks passed | ✅ |
+| Pre-PR review | **Light pass** (per workflow: scale to diff size) — declarative module constants; nothing for `/simplify` (no logic) or silent-failure-hunter (no error handling); values verified against the official rule | ✅ |
+| Pytest | 593 passed, 5 skipped (devbox `python:3.13`) | ✅ |
+| ADR | None — not a data-format / entity-identity / API-contract change | n/a |
+
+---
+
+## CR-260608-sync-master-to-dev — reconcile diverged branches + document the sync model
+
+**Date:** 2026-06-08
+**Branch:** `chore/sync-master-to-dev` → PR #83 to `dev` (merge commit)
+**Status:** Merged
+
+### What Changed
+
+| Area | Change |
+|------|--------|
+| (merge) | `master → dev` reconciliation merge. Code trees were already content-identical; the merge brings only the `README.md` PoE-energy guide and re-establishes shared history. |
+| `CLAUDE.md` | New § Branch Strategy sync rule: keep `dev ⊇ master`, back-merge with real merges, never parallel "dev parity" commits. |
+| `docs/ISSUES.md` | New `ISS-260608-dev-master-divergence` (root cause + resolution + going-forward rule). |
+
+### Why
+
+`git merge-base --is-ancestor origin/master origin/dev` was **false** — `master` showed "4 ahead" of `dev` despite content-identical code, because the v2.3.18 release line was applied to `dev` as parallel commits (different SHAs) rather than merged. Left unfixed, every feature branch faces an ambiguous base and noisy PRs. This resets the baseline and documents the model so it doesn't recur.
+
+### Quality Gate
+
+| Metric | Value |
+|--------|-------|
+| Merge conflicts | None (only `README.md` auto-merged) |
+| Code/test tree delta vs master | 0 (identical) |
+| Tests | Unchanged — no code touched; merge is docs-only over identical code |
+
+---
+
 ## CR-260530-tracking-visibility-and-handoff-backfill — document public/private tracking + promote 2 librouteros follow-ups
 
 **Date:** 2026-05-30

@@ -1,25 +1,227 @@
 # Issues — Mikrotik Router HACS Integration
 
+## In-flight
+
+> **Updated 2026-06-14 (session-end).** Stable **v2.3.19** not yet cut. This session: live-validated **every sensor class** of the deployed `v2.3.19-beta.2` against the routers (HA REST MCP + SSH ground-truth) — all classes report correctly. Found + fixed the one real bug; added validation/process docs. Both PRs merged to `dev`, CI-green.
+>
+> **Shipped to `dev` this session:** **[#105](https://github.com/jnctech/homeassistant-mikrotik_router/pull/105)** env-sensor empty value → `None` + skip value-less vars (`ISS-260608` fixed; `CR-260614`; full suite **621 pass** on py3.14) · **[#106](https://github.com/jnctech/homeassistant-mikrotik_router/pull/106)** `docs/release-validation.md` (CI + live cross-check playbook) + **Review Gates** in `quality-gates.md` (multi-agent audit panels + specialized passes). Branches `fix/env-sensor-empty-state` + `docs/release-validation` **retained** (don't delete immediately — `validate`-workflow race). Maintainer manually deleted the orphan `environment_defconfMode` entity.
+>
+> **NEXT SESSION — panel-driven (recon → review → junior-dev → senior-dev challenge, cite-or-null):**
+> 1. **`ENH-260509-poe-energy` (#59)** — native PoE-out energy (kWh) sensors. Retained branch `docs/enh-260509-poe-energy`; reserved beta name `v2.4.0-beta`. Panel to scope build approach + test/golden coverage.
+> 2. **librouteros 4.x migration** — `ISS-260417` (pinned `librouteros>=3.4.1,<4.0` since v2.3.14 — the cap to lift) + `ENH-260512-librouteros-test-matrix`. Salvage plan on retained branch `claude/review-engagement-requests-dIZVx` (carries a stale ADR-010 dup to renumber).
+>
+> **Released v2.3.19 (2026-06-14, CR-260614-release-v2.3.19):** FF `dev→master`, GitHub Release `v2.3.19`. **Branch-sync gate added** (`branch-sync-guard.yml`): enforces `master ⊆ dev` + PRs-to-master-from-dev-only, so releases are fast-forward and the branches can't silently diverge. **`#82` stays OPEN** — read-only fix shipped but unvalidated (reporter unresponsive; our live read-only test was inconclusive/contaminated).
+>
+> **Other open threads (durable):**
+> - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — syrupy wiring → `setup_integration`/`mock_config_entry` fixture → realistic per-path `MockMikrotikAPI` fixtures (make-or-break) → per-platform exemplars → drop `sonar-project.properties` platform-coverage exclusions → extract portable template to `config/docs/templates/hacs-testing/`. Entity-output only; freeze MAC lookup + time.
+> - **Gold/Platinum conformance** — `reconfiguration-flow` (no `async_step_reconfigure`) + `strict-typing` (no mypy / `py.typed`).
+> - **`ENH-260608-netwatch-naming` (#70)** — reuse ADR-013 `data_name_compose` once `get_netwatch` parses `name` + a precedence decision.
+> - **#76** capsman client shows AP name vs bridge name (low-pri, @fuecy). **`ISS-260608-cleanup-over-logging`** (#92, per-entity removal → DEBUG).
+> - **Coordinator decomposition — DEFERRED** (would be ADR-016) until a concrete trigger; the host-merge is the live-bug area.
+>
+> **Standards:** refresh this `## In-flight` block on `dev` at session-end; **don't delete a merged PR branch immediately** — it races the `validate` workflow against the (now-missing) PR ref (cosmetic red on the closed PR). Live validation each release per `docs/release-validation.md`.
+
 ## Current Priorities
 
-1. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
-2. ISS-260509-ha-2026.5-untested — HA 2026.5.0 not yet validated against the integration; testing planned
-3. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
-4. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
-5. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
-6. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
+1. ISS-260525-issue-68-capsman-detection — **🟢 Shipped in v2.3.18** (#77, "CAPsMAN on legacy-wireless 7.13+ routers"). Orphaned branches `claude/modest-einstein-0Ulby` / `feature/issue-68-capsman-interface` — prune.
+2. ISS-260523-issue-68-capsman-interface — **🟢 Shipped** — `capsman-interface` attribute (ADR-011) is in the released integration. Low-priority refinement (prefer bridge name when a bridge-host row exists) open as [#76](https://github.com/jnctech/homeassistant-mikrotik_router/issues/76).
+3. ISS-260509-mikrotikapi-concurrency — `set_value`/`execute` iterate the librouteros response outside the API lock; fixed in v2.3.16 (#64)
+4. ISS-260509-ha-2026.5-untested — **🔴 Closed** — indirectly resolved via the v2.3.16 concurrency fix (#64/#65); integration runs on HA 2026.x / py3.14 (live box + CI matrix) with no 2026.5-specific regression.
+5. ISS-260417-librouteros-4x-break — librouteros 4.0.1 breaks `connect()` kwarg; hotfix v2.3.14 pinned `<4.0` (proper 4.x migration tracked separately)
+6. ISS-260320-new-device-discovery — New devices require HA restart (UID tracking in place, dispatcher needs entity guard hardening)
+7. ENH-260523-ha-release-watch — scheduled HA release-notes watcher (proposed, low priority)
+8. ENH-260523-scope-drift-hook — UserPromptSubmit detector for off-plan pivots (proposed, low priority)
 
-(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71. Both issue-68 entries — capsman-detection and capsman-interface — shipped in v2.3.18 and are closed; #68 and follow-up #76 closed.)
+(ISS-260512-ci-manifest-drift closed in PR #69; ISS-260522-ruff-format-drift closed in PR #71.)
 
 ---
 
 ## Active
 
+### ISS-260608-fw-version-silent-fallthrough — fw-version-gated paths silently no-op at version 0
+**Type:** Bug
+**Priority:** Medium
+**Created:** 2026-06-08
+**Status:** 🟢 Merged to `dev` (PR #97); shipped in **v2.3.19-beta.2** (CR-260608-fw-version-silent-fallthrough). Folds into stable v2.3.19.
+
+**Symptom:**
+When `major_fw_version` is `0`, three version-gated coordinator methods silently did nothing with no diagnostic log: `get_capabilities` (capability detection skipped → `support_*` flags left at defaults), `_async_update_client_traffic` (client-traffic collection skipped), and `get_system_health` (health skipped). For read-only accounts this is a persistent state, so capsman/wireless/ppp sensors and client-traffic could be silently absent.
+
+**Root cause:**
+`major_fw_version` initialises to `0` (`coordinator.py:324`) and is only set in `get_firmware_update` (`:1719`), which early-returns for accounts lacking write/policy/reboot rights and leaves `0` on a firmware-string parse failure. The three `if 0 < v < 7 / elif v >= 7` chains had no `else`, so version 0 fell through silently. `get_system_health` additionally had a malformed `elif 0 < self.major_fw_version >= 7` (dead `0 <` clause; worked for v7 by accident).
+
+**Fix (§2.1):**
+Add an explicit `else:` to each chain that logs at **DEBUG** ("firmware version unknown (0); skipping … this cycle"); fix the malformed elif to `elif self.major_fw_version >= 7`. DEBUG (not WARNING) because a read-only account never self-heals the version → a per-poll warning would spam; the contributor read-only fw-version fix (#82) addresses the *reachability* at source. Tests: `major_fw_version=0` cases for all three (caplog). Verified 609 passed/5 skipped (py3.14); coordinator-reviewer PASS.
+
+**Related:** #82/#81 (read-only fw-version at source); part of the §2.1 batch (remaining §2.1 items still open — see In-flight).
+
+---
+
+### ISS-260608-readonly-capability-detection — capability detection fails for read-only users on RouterOS 7.x
+**Type:** Bug
+**Priority:** High
+**Created:** 2026-06-08
+**Status:** 🟢 MERGED to `dev` — core fix [#81](https://github.com/jnctech/homeassistant-mikrotik_router/pull/81) (@ahharvey, `3b14465`) + maintainer hardening #98. Shipped in **v2.3.19-beta.2**; awaiting @ahharvey validation (wifi-qcom read-only) before closing [#82](https://github.com/jnctech/homeassistant-mikrotik_router/issues/82).
+
+**Symptom:**
+On RouterOS 7.x, an integration user without `write`/`policy`/`reboot` permissions silently gets no wireless / CAPsMAN / PPP / per-client-traffic data — e.g. `sensor._wireless_clients` reads `0` with clients connected, and `wifi-qcom` routers are queried on the non-existent `/interface/wireless` endpoint (`400 "no such command or directory (wireless)"`). Reported in [#82](https://github.com/jnctech/homeassistant-mikrotik_router/issues/82) by @ahharvey (hAP ax³ / wifi-qcom, RouterOS 7.22.3).
+
+**Root cause:**
+`major_fw_version` is only parsed inside `get_firmware_update()`, which early-returns under read-only access. It stays `0`, so `get_capabilities()` dispatch (gated on `major_fw_version`) never runs and support flags / `_wifimodule` keep their defaults.
+
+**Fix:**
+New `_parse_fw_version_from_resource()` parses the version from the read-only `/system/resource.version` at the tail of `get_system_resource()` (runs before `get_capabilities()` in the hwinfo loop). Self-skips when `major_fw_version > 0`, leaving the privileged `get_firmware_update()` path authoritative. Maintainer hardening adds 7 tests + a DEBUG log on the version-unavailable branch. No ADR (internal sourcing change). Complements `ISS-260608-fw-version-silent-fallthrough` (§2.1, downstream consumers).
+
+---
+
+### ENH-260608-entity-naming — distinct entities collide on friendly names (`_N` entity_id suffixes)
+**Type:** Enhancement (entity naming / quality)
+**Priority:** Medium
+**Created:** 2026-06-08
+**Status:** 🟢 Resolved on `feature/entity-naming` (ADR-013, CR-260608-entity-naming) — pending PR merge to `dev`
+
+**Symptom:**
+On networks with many clients or multiple DHCP servers, distinct entities receive the **same friendly name**, so Home Assistant disambiguates the entity_ids with `_2`/`_3`/… suffixes — e.g. `device_tracker.lwip0`, `lwip0_2`…`lwip0_6` (six different MACs), or one `dhcp_server` sensor per VLAN all named `…DHCP server`. The entities are valid and distinct (different `unique_id`s); only the *naming* collides.
+
+**Root cause (corrected by live recorder-DB evidence 2026-06-08 — the original "named by interface" premise was wrong):**
+- **Clients:** not interface-naming. The colliding hosts report a **non-unique DHCP hostname** (e.g. `lwip0`, the lwIP embedded-stack default on ESP-class IoT devices); their `interface` attribute is `bridge`, not `lwip0`. The coordinator only falls back to MAC when host-name is `unknown` (`coordinator.py:2548`), so a present-but-duplicate hostname slips through.
+- **DHCP servers:** `dhcp_server_status`/`_lease_count` have `data_name == data_reference == "name"`, so the `entity.py` equality shortcut always fires and drops the distinct VLAN name; all servers share the one `System` device, so there is no device-level disambiguation either.
+
+**Resolution (ADR-013):**
+- Coordinator `_disambiguate_duplicate_hostnames()` appends the MAC to any host-name shared by >1 host → `"{host-name} ({mac})"`. Runs at the end of `async_process_host` so **both** client_traffic copy sites inherit it (`_init_accounting_hosts` fw<7, `process_kid_control_devices` fw≥7).
+- Scoped `data_name_compose` descriptor flag (set only on the two `dhcp_server_*` descriptors) → `"{name} DHCP server"`.
+- `unique_id` unchanged in both families → existing entity_ids/automations preserved; only friendly names + new entities change. No migration. Behaviour tests added (incl. v7 path + unique_id invariance + scope guard).
+- **Out of scope (mechanism-compatible follow-up):** netwatch naming (jnctech #70) — see ENH-260608-netwatch-naming.
+
+---
+
+### ENH-260608-netwatch-naming — name netwatch entities by `name`, not shared `comment` (jnctech #70)
+**Type:** Enhancement (entity naming / quality)
+**Priority:** Low
+**Created:** 2026-06-08
+**Status:** 🔵 Filed (follow-up to ENH-260608-entity-naming)
+
+**Request ([jnctech #70](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70)):** with 50+ netwatch entries, many **share a `comment`**, so they collapse to one display name; the user wants the distinct **`name`** field shown instead.
+
+**Same class of bug as ENH-260608-entity-naming, but needs more than its `data_name_compose` flag:**
+- `get_netwatch` (`coordinator.py:~1542`) does **not** parse a `name` field — it must be added to the dataset first.
+- netwatch's descriptor sets `data_name_comment=True`, so the collapse fires via the **comment branch** (`entity.py:302-303`), not (only) the `data_name==data_reference` shortcut. Honoring the request requires a **name-vs-comment precedence decision** that conflicts with current comment-first behaviour.
+
+**Plan:** extend `get_netwatch` to parse `name`; decide precedence (likely `name` when present, else `comment`); reuse the general `data_name_compose` mechanism from ADR-013 where applicable. Separate PR — kept out of ADR-013 to keep that change small and gated.
+
+---
+
+### ISS-260608-env-sensor-empty-state — environment sensor reports `''` when the RouterOS env var is empty
+**Type:** Bug (state quality)
+**Priority:** Low
+**Created:** 2026-06-08
+**Status:** 🟢 Fixed — merged to `dev` ([#105](https://github.com/jnctech/homeassistant-mikrotik_router/pull/105), CR-260614-fix-env-sensor-empty-state). Ships in v2.3.19.
+
+**Symptom:**
+A `*_environment_<name>` sensor reports an empty string (`''`) as its state when the corresponding RouterOS environment variable exists but is empty (observed: `environment_defconfMode`). Empty-string is not a valid HA state convention — HA expects `None` → `unknown`/`unavailable`. On other routers where the same variable has no value the sensor correctly reads `unavailable`, so the behaviour is inconsistent.
+
+**Root cause (confirmed live 2026-06-14):** `defconfMode` is a RouterOS global *script* variable (`/system/script/environment`) — RAM-only, set by the default-config script and wiped on reboot. SSH to hap_ax3 confirmed the env table is now empty (`env_count=0`; device rebooted ~06-13), so the once-`''` entity is now an orphaned `unavailable`/`restored` registry entry.
+
+**Fix (two parts):**
+- `coordinator.get_environment` coerces empty/whitespace values to `None`, so the entity reads `unknown` rather than `''` (incl. when a live entity's variable later goes empty).
+- `entity._skip_environment_sensor` skips entity creation for value-less variables, so transient/empty globals don't create orphan-prone entities in the first place.
+- Tests: `test_environment_empty_value_coerced_to_none` (coordinator), `test_skip_environment_sensor_*` (entity).
+- Residual: the pre-existing orphan entity (`sensor.mikrotik_hapax3_environment_defconfmode`) was **deleted manually by the maintainer 2026-06-14**. The broader "transient non-empty global orphans on reboot" class is out of scope (would need entity cleanup, tracked separately if it recurs).
+
+---
+
+### ENH-260509-poe-energy — native PoE-out energy sensors (#59)
+**Type:** Enhancement (new sensors)
+**Priority:** Medium
+**Created:** 2026-05-09
+**Status:** 🟡 Open — scoped on retained branch `docs/enh-260509-poe-energy` (not merged to `dev`)
+
+**Summary:**
+Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived from the existing PoE-out **power** reading, so users get Energy-dashboard-compatible consumption without template sensors. Detail/scoping notes live on the retained branch `docs/enh-260509-poe-energy` (commit `339932e`, +22 lines to ISSUES); the reserved beta name `v2.4.0-beta` is earmarked for this feature. `[branch contents verified 2026-06-14; full design UNVERIFIED — to be scoped next session]`
+
+**Next step:** multi-agent panel (recon → review → junior-dev → senior-dev challenge, cite-or-null) to scope: integration vs HA `integration`/`utility_meter` helper, counter source + reset handling, which boards report PoE-out power, and test/golden coverage.
+
+---
+
+### ENH-260608-test-suite-hardening — migrate tests to spec'd mocks, parametrize, behaviour assertions
+**Type:** Enhancement (test quality)
+**Priority:** **High — pre-release deliverable** (maintainer 2026-06-08: must land before the next release)
+**Created:** 2026-06-08
+**Status:** 🟡 In Progress — reference (`test_sensor.py`) + real-typed description factory done. **Direction update (ADR-014, 2026-06-09):** the entity-surface layer moves to **L1 entity-golden tests** (syrupy over a mocked API boundary); the `make_mock_coordinator → spec=` coordinator-factory pass is now **optional** (goldens supersede it). The build is tracked by ADR-014's implementation plan and is the next-session focus.
+
+The suite leans on unspecced `MagicMock` (yes-man) coordinators/descriptions, near-zero `parametrize`, and assertions on internal representation rather than behaviour. Migrate each module to: `spec=`/real-type mocks (typos/renames fail), `@pytest.mark.parametrize` for data-driven cases, fixtures for shared arrange, and input→output assertions. Full findings: `docs/internal/test-suite-review-2026-06-08.md`.
+
+**Standing rule (maintainer):** new tests must be spec'd/real-typed at write time — do **not** lean on the yes-man factories. (Applied in ADR-013: its `custom_name` tests build the real `MikrotikSensorEntityDescription`.)
+
+- [x] `test_sensor.py` — reference implementation (`feature/test-sensor-exemplar`, CR-260608-test-sensor-exemplar)
+- [x] new ADR-013 tests written spec'd (real description dataclass; behaviour assertions) — `feature/entity-naming`
+- [x] `conftest.py::make_mock_entity_description` — now builds the **real** `Mikrotik*EntityDescription` per platform (8 sites / 6 modules) so renamed/removed fields fail (`test/spec-entity-description`). Surfaced + fixed the switch/update tests building sensor-typed descriptions.
+- [ ] **Goldens build — implement ADR-014** (the durable target): syrupy wiring → `setup_integration` fixture → deterministic per-path `MockMikrotikAPI` fixtures (make-or-break) → sensor exemplar → expand per platform → drop `sonar-project.properties` platform exclusions → portable `config/docs/templates/hacs-testing/` template. **Next-session focus.**
+- [ ] (OPTIONAL — superseded by ADR-014 goldens) `conftest.py::make_mock_coordinator` `spec=MikrotikCoordinator` bridge; do only as a quick win before goldens land
+- [ ] remaining (orthogonal): T4 parametrize clusters, T6 fixtures, T3 `make_coordinator` `object.__new__`
+
+---
+
+### ISS-260608-cleanup-over-logging — cleanup services log one INFO line per removed entity
+**Type:** Bug (log verbosity / quality-scale appropriate-logging)
+**Priority:** Low — benign; no functional impact
+**Created:** 2026-06-08
+**Status:** 🔵 Filed (fix deferred)
+
+`async_cleanup_entities` logs **one INFO line per removed entity** (`__init__.py:137`), so a single cleanup that removes many orphans emits a burst of INFO lines. On the live v2.3.18 box (2026-06-08 15:02:53) a cleanup removed **71 orphaned `client_traffic_tx/rx` entities** (the `_2/_3/_4` naming-collision debris), tripping HA's per-integration rate limiter: `homeassistant.util.logging — Module custom_components.mikrotik_router is logging too frequently. 200 messages since last count`. The per-call summaries also log at INFO even when 0 were removed (`__init__.py:145/236/239`).
+
+**Investigation (2026-06-08):** the cleanup services are **not** driven by any standing automation — searched `/config` (automations.yaml, scripts.yaml, configuration.yaml, `.storage`, `packages/`, `/config/scripts/`): no caller; the integration does not self-schedule. All 224 cleanup log lines are clustered in the 15:xx window only (none after) → a one-off, session-driven batch (the live entity audit + cleanup of ~335 stale entities). Will not recur unless cleanup is re-run over a large orphan set.
+
+**Proposed fix (off `dev`, gated):**
+- `__init__.py:137` per-entity removal → `_LOGGER.debug` (keep one INFO summary per call).
+- Summaries (`:145/236/239`) → INFO when count > 0, DEBUG when 0.
+- Behaviour test: a multi-removal cleanup emits ≤ 1 INFO line.
+
+Present identically on **master (v2.3.18, running)** and **dev**.
+
+---
+
+### ENH-260608-quality-scale-conformance — close HA Integration Quality Scale gaps
+**Type:** Enhancement (conformance)
+**Priority:** Medium
+**Created:** 2026-06-08
+**Status:** 🟡 In Progress
+
+Bring the integration to the HA Integration Quality Scale Bronze/Silver baseline. Verified scorecard reviewed against the official rules 2026-06-08.
+
+- [x] **parallel-updates** (Silver) — `PARALLEL_UPDATES` per platform (`feature/parallel-updates`, CR-260608-parallel-updates)
+- [x] **runtime-data** (Bronze) — typed `ConfigEntry.runtime_data` (`feature/runtime-data`, ADR-012, CR-260608-runtime-data)
+- [x] **reauthentication-flow** (Silver) — `async_step_reauth` + raise `ConfigEntryAuthFailed` on `wrong_login` (`feature/reauthentication-flow`, CR-260608-reauthentication-flow)
+- [x] **declare `quality_scale`** — `"quality_scale": "silver"` in `manifest.json` now that Bronze+Silver are met (`feature/declare-quality-scale`, CR-260608-declare-quality-scale)
+- [ ] **reconfiguration-flow** (Gold), **strict-typing** (Platinum) — later, alongside the coordinator decomposition
+- Already conformant: config-flow, has-entity-name, test-before-setup/-configure, entity-unique-id, brands, entity-translations (26 locales), diagnostics, config-entry-unloading.
+
+Bronze+Silver met and declared (`quality_scale: silver`). Remaining tiers (Gold reconfiguration-flow, Platinum strict-typing) tracked above.
+
+---
+
+### ISS-260608-dev-master-divergence — `dev` and `master` synced by parallel commits, not merges
+**Type:** Process / repo hygiene
+**Priority:** Medium
+**Created:** 2026-06-08
+**Status:** 🟢 Reconciled on `dev` (PR #83, merge commit); going-forward rule added to CLAUDE.md
+
+**Symptom:**
+`git merge-base --is-ancestor origin/master origin/dev` returned **false** — `master` appeared "4 commits ahead" of `dev` even though the *code trees were content-identical* (only `README.md` differed by the PoE-energy guide). The 4 commits were patch-duplicates already on `dev` under different SHAs (e.g. `b98b7e2 fix(ci): lock-threads` vs `f71da08 …(dev parity)`; `1877bb5 Release v2.3.18` vs `4adda71`).
+
+**Root cause:**
+master↔dev were kept in sync by **re-applying changes as parallel commits** (`…(dev parity)`, duplicate release commits) instead of true merges, so git never recorded shared history and the branches drift permanently. This makes feature branching ambiguous (which base?) and PRs noisy (a master-based branch rebased onto dev drags master-only commits along).
+
+**Resolution:**
+One-time `master → dev` reconciliation **merge commit** (PR #83) — clean, brought only the README PoE guide. Going forward: features → `dev` → `master`; releases cut by **merging** `dev → master`; any hotfix landing on `master` first is **back-merged to `dev` with a real merge commit** so `dev ⊇ master` always holds. Rule documented in CLAUDE.md § Branch Strategy.
+
+---
+
 ### ISS-260525-issue-68-capsman-detection — CAPsMAN + wireless disabled for 7.13+ routers on the legacy `wireless` package
 **Type:** Bug
 **Priority:** High
 **Created:** 2026-05-25
-**Status:** 🔴 Closed — shipped in v2.3.18 (#77); @fuecy verified on a clean install. #68 closed.
+**Status:** 🟡 In Review — fix in `claude/modest-einstein-0Ulby`; awaiting @fuecy validation on a `dev` pre-release
 
 **Symptom:**
 On RouterOS 7.13+ routers still running the legacy `wireless` package (not the new wifi driver), CAPsMAN client data never appears and wireless interface attributes are empty — even after the v2.3.17 dual-endpoint fallback. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy (RouterOS 7.21.4).
@@ -36,7 +238,7 @@ Package-driven detection. `_has_wifi_package()` returns `False` when an enabled 
 **Type:** Bug
 **Priority:** High
 **Created:** 2026-05-23
-**Status:** 🔴 Closed — shipped in v2.3.17 (additive `capsman_interface` attribute), reached end users via the v2.3.18 detection fix (#77). #68 closed; cosmetic follow-up #76 closed as not-planned.
+**Status:** 🟡 In Progress — fix in `feature/issue-68-capsman-interface` (v2.3.17)
 
 **Symptom:**
 On a router with CAPsMAN APs (`Slaapkamer`, `Zolder`, etc.) the `interface` attribute on `device_tracker.<wireless-mac>` entities shows the bridge name, not the AP-virtual interface. Reported in [#68](https://github.com/jnctech/homeassistant-mikrotik_router/issues/68) by @fuecy.
@@ -221,7 +423,7 @@ The race has existed since the current `set_value`/`execute` shape was introduce
 **Type:** Compatibility
 **Priority:** Medium
 **Created:** 2026-05-09
-**Status:** 🟡 Backlog
+**Status:** 🔴 Closed — indirectly resolved. This was a byproduct of diagnosing #64: the "2026.5 breaks the integration" symptom was the `set_value`/`execute` concurrency race (a long-standing bug exposed by py3.14 thread scheduling), **diagnosed and fixed in v2.3.16** (#65) — not a 2026.5-specific incompatibility. Since then the integration runs on HA 2026.x / py3.14 on the live box (v2.3.18) and the **full CI matrix runs py3.13 + py3.14** on every PR with no 2026.5-specific regression. No separate manual-validation deliverable remains; future HA-release regressions are covered by ongoing CI + user reports (proactive watching tracked separately as ENH-260523-ha-release-watch).
 
 **Context:**
 HA 2026.5.0 (released 2026-05-06) is the first version where a user (#64) has reported the integration breaking. HA has been on Python 3.14 since [2026.3](https://www.home-assistant.io/blog/2026/03/04/release-20263/#running-on-python-314-), so the runtime alone isn't a sufficient explanation — the race in `set_value`/`execute` was present in 2026.3 and 2026.4 too without prior reports. The integration's CI matrix and local dev environment still target Python 3.13.
@@ -296,6 +498,8 @@ librouteros 4.0.1 renamed the `connect()` keyword argument `login_methods` → `
 - Rename kwarg in `mikrotikapi.py` to `login_method`
 - Audit remaining librouteros 4.0.1 breaking changes
 - Bump floor to `>=4.0`, drop upper bound
+
+**Salvage (circle-back, 2026-06-08):** a migration plan + upstream-engagement notes were drafted on the **retained** branch `claude/review-engagement-requests-dIZVx` (it carries a *stale* `ADR-010-librouteros-4x-migration` — ADR-010 is now claude-tooling-baseline, so renumber on salvage). When this work starts: lift the plan into a correctly-numbered ADR, then drop the `<4.0` cap behind a librouteros version test matrix (`ENH-260512-librouteros-test-matrix`).
 
 ---
 
