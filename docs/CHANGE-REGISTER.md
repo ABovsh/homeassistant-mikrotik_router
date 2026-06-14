@@ -4,6 +4,24 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-release-v2.3.20-beta.2 - pre-release rolling up PoE energy + librouteros + deprecation fixes
+
+**Date:** 2026-06-14
+**Branch:** `chore/release-v2.3.20-beta.2` -> PR to `dev`
+**Status:** Pre-release - tag `v2.3.20-beta.2` cut from `dev` for maintainer testing (folds the post-beta.1 dev changes); precedes stable `v2.3.20`.
+
+### What changed
+- `manifest.json` `2.3.20-beta.1 -> 2.3.20-beta.2`; README / info.md What's New updated.
+- Rolls up everything landed on `dev` since beta.1: PoE-out energy (CR-260614-poe-energy-sensors), librouteros `login_method` fix (CR-260614-librouteros-login-method), HA deprecations cleanup (CR-260614-ha-deprecations-cleanup), connect-contract test (CR-260614-connect-contract-test).
+
+### Why
+A current pre-release for the maintainer to validate the full `dev` state on the live fleet before stable `v2.3.20` (and so @Dillton can test against the latest).
+
+### Release ops
+Lands on `dev`; cut **pre-release** tag `v2.3.20-beta.2` off `dev` -> `release.yml` (trigger `release: published`) builds the zip. No `dev->master`.
+
+---
+
 ## CR-260614-connect-contract-test - pin librouteros.connect() call contract
 
 **Date:** 2026-06-14

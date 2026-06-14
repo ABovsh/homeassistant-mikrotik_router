@@ -21,12 +21,14 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
-## What's New — v2.3.20-beta.1
+## What's New — v2.3.20-beta.2
 
 Beta for validating native **PoE-out energy** sensors (#59) on real metering hardware before a stable release.
 
 - **PoE energy for the Energy Dashboard.** Each PoE-out port now exposes an energy sensor (kWh, `total_increasing`) plus a device total, ready to add as a consumption source — no template/Riemann helpers needed. Enable the existing **PoE sensors** option. Counters survive Home Assistant restarts.
 - **Estimated energy for routers without PoE metering.** Some boards (e.g. hAP ax3) power a device but don't report PoE wattage. Where the powered device is uniquely identified via MikroTik Neighbor Discovery, the sensor estimates energy from the device's datasheet rating and labels it `power_source: estimated`. This is a coarse upper-bound estimate, not a measurement. See [ADR-017](docs/decisions/ADR-017-poe-energy-accumulation.md).
+
+- **Also folded in since beta.1:** correct librouteros `login_method` handling (`ISS-260417`) and a cleanup of HA `device_tracker` + config-flow reload deprecations (clears the HA 2026.12 / 2027.6 removal deadlines and the log warnings).
 
 > Beta note: PoE-out energy is new and is being validated against metering hardware via this beta. Measured ports report the real integral of `poe-out-power`; estimated ports use a nameplate maximum (actual draw is typically lower). Feedback welcome on #59.
 

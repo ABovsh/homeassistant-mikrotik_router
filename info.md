@@ -10,10 +10,11 @@ Monitor and control your MikroTik router from Home Assistant.
 
 ![Mikrotik Logo](https://raw.githubusercontent.com/tomaae/homeassistant-mikrotik_router/master/docs/assets/images/ui/header.png)
 
-### What's new in v2.3.20-beta.1
+### What's new in v2.3.20-beta.2
 Beta validating native **PoE-out energy** sensors (#59) before a stable release.
 - **PoE energy for the Energy Dashboard** — per-port energy sensors (kWh, `total_increasing`) + a device total, restart-persistent. Enable the existing PoE sensors option.
 - **Estimated energy on non-metering hardware** — where a PoE-out port powers a device that has no wattage reading, energy is estimated from the device's datasheet rating (via Neighbor Discovery) and labelled `power_source: estimated` — a coarse upper bound, not a measurement.
+- **Folded in since beta.1** — librouteros `login_method` correctness (`ISS-260417`) + HA deprecation cleanup (device_tracker `ScannerEntity`, config-flow reload).
 
 ### What's new in v2.3.19
 Stable release rolling up the read-only and quality-scale fixes since v2.3.18. Validated live against a multi-device RouterOS deployment before tagging.
