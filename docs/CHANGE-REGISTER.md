@@ -4,6 +4,24 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260614-librouteros-login-method - pass librouteros login_method callable (auth correctness)
+
+**Date:** 2026-06-14
+**Branch:** `fix/librouteros-login-method` -> PR to `dev`
+**Status:** In Review
+
+### What changed
+- `mikrotikapi.py` - `connect()` now passes librouteros' `login_method` (the >=3.0 singular kwarg) as a CALLABLE mapped from the config string (`_LOGIN_METHODS = {"plain": login.plain, "token": login.token}`), instead of the pre-3.0 plural `login_methods` string kwarg which librouteros silently drops.
+- `tests/test_mikrotikapi.py` - `TestLoginMethod` asserts plain/token map to the callables and the old kwarg is gone.
+
+### Why
+Part of `ISS-260417` (reframed by the G0 panel 2026-06-14): the `login_methods`->`login_method` rename landed in librouteros 3.0.0, so the old kwarg has been silently dropped across the whole pinned `>=3.4.1,<4.0` range - `plain` only worked by librouteros' default fallback, and a `token` user would silently get plain. (Login method is not yet exposed in the config flow, so only `plain` is exercised live today; this makes the selection actually honoured if/when token is wired up.) The `<4.0` pin is unchanged - lifting it is tracked separately (`ENH-260512-librouteros-test-matrix`).
+
+### Verification
+654 passed, 5 skipped (py3.14 Docker); ruff clean. Live `plain` auth is exercised by the running fleet on every poll.
+
+---
+
 ## CR-260614-poe-energy-sensors — native PoE-out energy sensors (measured + nameplate estimate)
 
 **Date:** 2026-06-14
