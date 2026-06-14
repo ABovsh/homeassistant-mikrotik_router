@@ -521,3 +521,38 @@ class TestQueryExtracted:
 
         result = api.query("/interface/ethernet", command="monitor", args={".id": "*1", "once": True})
         assert result == [{"status": "running"}]
+
+
+# --- login method (librouteros >=3.0 callable kwarg) ---
+
+
+class TestLoginMethod:
+    """connect() must pass librouteros' `login_method` callable, not the old
+    pre-3.0 `login_methods` string kwarg (which was silently dropped, forcing
+    plain auth even for token users). See ISS-260417."""
+
+    def _connect_kwargs(self, login_method):
+        from unittest.mock import patch as _patch
+
+        api = make_api(login_method=login_method)
+        with _patch("custom_components.mikrotik_router.mikrotikapi.librouteros.connect") as mock_connect:
+            mock_connect.return_value = MagicMock()
+            api.connect()
+        return mock_connect.call_args.kwargs
+
+    def test_plain_maps_to_callable_and_drops_old_kwarg(self):
+        from custom_components.mikrotik_router.mikrotikapi import _login_plain
+
+        kwargs = self._connect_kwargs("plain")
+        assert kwargs["login_method"] is _login_plain
+        assert "login_methods" not in kwargs
+
+    def test_token_method_is_honoured(self):
+        from custom_components.mikrotik_router.mikrotikapi import _login_token
+
+        assert self._connect_kwargs("token")["login_method"] is _login_token
+
+    def test_unknown_method_falls_back_to_plain(self):
+        from custom_components.mikrotik_router.mikrotikapi import _login_plain
+
+        assert self._connect_kwargs("bogus")["login_method"] is _login_plain
