@@ -114,13 +114,18 @@ On networks with many clients or multiple DHCP servers, distinct entities receiv
 **Type:** Bug (state quality)
 **Priority:** Low
 **Created:** 2026-06-08
-**Status:** 🟡 Open
+**Status:** 🟢 Fixed on branch `fix/env-sensor-empty-state` (CR-260614-fix-env-sensor-empty-state) — target v2.3.19
 
 **Symptom:**
 A `*_environment_<name>` sensor reports an empty string (`''`) as its state when the corresponding RouterOS environment variable exists but is empty (observed: `environment_defconfMode`). Empty-string is not a valid HA state convention — HA expects `None` → `unknown`/`unavailable`. On other routers where the same variable has no value the sensor correctly reads `unavailable`, so the behaviour is inconsistent.
 
-**Fix:**
-In the environment sensor's value path, return `None` (or set unavailable) when the variable value is empty/missing, so the entity reports `unknown`/`unavailable` rather than `''`.
+**Root cause (confirmed live 2026-06-14):** `defconfMode` is a RouterOS global *script* variable (`/system/script/environment`) — RAM-only, set by the default-config script and wiped on reboot. SSH to hap_ax3 confirmed the env table is now empty (`env_count=0`; device rebooted ~06-13), so the once-`''` entity is now an orphaned `unavailable`/`restored` registry entry.
+
+**Fix (two parts):**
+- `coordinator.get_environment` coerces empty/whitespace values to `None`, so the entity reads `unknown` rather than `''` (incl. when a live entity's variable later goes empty).
+- `entity._skip_environment_sensor` skips entity creation for value-less variables, so transient/empty globals don't create orphan-prone entities in the first place.
+- Tests: `test_environment_empty_value_coerced_to_none` (coordinator), `test_skip_environment_sensor_*` (entity).
+- Residual: a *pre-existing* orphan entity must be deleted once in HA (no integration auto-removal). The broader "transient non-empty global orphans on reboot" class is out of scope (would need entity cleanup, tracked separately if it recurs).
 
 ---
 

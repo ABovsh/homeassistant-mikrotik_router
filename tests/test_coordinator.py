@@ -2622,6 +2622,28 @@ def test_environment_basic_parsing():
     assert coordinator.ds["environment"]["count"]["value"] == "42"
 
 
+def test_environment_empty_value_coerced_to_none():
+    """Empty / whitespace env values are coerced to None, real values kept.
+
+    Empty-string is not a valid HA sensor state; coercing to None makes the
+    entity read 'unknown' and lets _skip_environment_sensor drop value-less
+    variables. See ISS-260608-env-sensor-empty-state.
+    """
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/script/environment": [
+                {"name": "defconfMode", "value": ""},
+                {"name": "spaced", "value": "   "},
+                {"name": "real", "value": "yes"},
+            ],
+        }
+    )
+    coordinator.get_environment()
+    assert coordinator.ds["environment"]["defconfMode"]["value"] is None
+    assert coordinator.ds["environment"]["spaced"]["value"] is None
+    assert coordinator.ds["environment"]["real"]["value"] == "yes"
+
+
 # ---------------------------------------------------------------------------
 # Group X: get_kidcontrol() — kid control parsing
 # ---------------------------------------------------------------------------

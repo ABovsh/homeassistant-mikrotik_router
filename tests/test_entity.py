@@ -462,6 +462,39 @@ def test_skip_host_tracker_when_option_disabled():
 
 
 # ---------------------------------------------------------------------------
+# Environment sensor tests (ISS-260608-env-sensor-empty-state)
+# ---------------------------------------------------------------------------
+
+
+def test_skip_environment_sensor_when_value_none():
+    """Environment sensor is skipped when the variable value is None."""
+    desc = make_entity_desc(data_path="environment", data_attribute="value")
+    data = {"defconfMode": {"value": None}}
+    assert _skip_sensor(make_config_entry(), desc, data, "defconfMode") is True
+
+
+def test_skip_environment_sensor_when_value_empty_string():
+    """Environment sensor is skipped when the variable value is an empty string."""
+    desc = make_entity_desc(data_path="environment", data_attribute="value")
+    data = {"defconfMode": {"value": ""}}
+    assert _skip_sensor(make_config_entry(), desc, data, "defconfMode") is True
+
+
+def test_skip_environment_sensor_when_value_whitespace():
+    """Whitespace-only environment value is treated as empty."""
+    desc = make_entity_desc(data_path="environment", data_attribute="value")
+    data = {"defconfMode": {"value": "   "}}
+    assert _skip_sensor(make_config_entry(), desc, data, "defconfMode") is True
+
+
+def test_no_skip_environment_sensor_when_value_present():
+    """Environment sensor is created when the variable carries a value."""
+    desc = make_entity_desc(data_path="environment", data_attribute="value")
+    data = {"myVar": {"value": "yes"}}
+    assert _skip_sensor(make_config_entry(), desc, data, "myVar") is False
+
+
+# ---------------------------------------------------------------------------
 # PoE sensor tests
 # ---------------------------------------------------------------------------
 
