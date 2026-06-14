@@ -2,15 +2,15 @@
 
 ## In-flight
 
-> **Updated 2026-06-14 (session-end).** Stable **v2.3.19** not yet cut. This session: live-validated **every sensor class** of the deployed `v2.3.19-beta.2` against the routers (HA REST MCP + SSH ground-truth) — all classes report correctly. Found + fixed the one real bug; added validation/process docs. Both PRs merged to `dev`, CI-green.
+> **Updated 2026-06-14 (session-end, post-release).** **v2.3.19 shipped.** This session: ran the G0 design panels on the two next enhancements, then cut + published v2.3.19, added a branch-sync CI gate, and resolved a SonarCloud false positive. (Live-sensor validation + env-sensor fix #105 + validation/review docs #106 landed earlier the same day.)
 >
 > **Shipped to `dev` this session:** **[#105](https://github.com/jnctech/homeassistant-mikrotik_router/pull/105)** env-sensor empty value → `None` + skip value-less vars (`ISS-260608` fixed; `CR-260614`; full suite **621 pass** on py3.14) · **[#106](https://github.com/jnctech/homeassistant-mikrotik_router/pull/106)** `docs/release-validation.md` (CI + live cross-check playbook) + **Review Gates** in `quality-gates.md` (multi-agent audit panels + specialized passes). Branches `fix/env-sensor-empty-state` + `docs/release-validation` **retained** (don't delete immediately — `validate`-workflow race). Maintainer manually deleted the orphan `environment_defconfMode` entity.
 >
 > **NEXT SESSION — panel-driven (recon → review → junior-dev → senior-dev challenge, cite-or-null):**
-> 1. **`ENH-260509-poe-energy` (#59)** — native PoE-out energy (kWh) sensors. Retained branch `docs/enh-260509-poe-energy`; reserved beta name `v2.4.0-beta`. Panel to scope build approach + test/golden coverage.
-> 2. **librouteros 4.x migration** — `ISS-260417` (pinned `librouteros>=3.4.1,<4.0` since v2.3.14 — the cap to lift) + `ENH-260512-librouteros-test-matrix`. Salvage plan on retained branch `claude/review-engagement-requests-dIZVx` (carries a stale ADR-010 dup to renumber).
+> 1. **`ENH-260509-poe-energy` (#59)** — **G0 done:** recommend **Option A** (keep the PoE *power* sensors + ship a Riemann-Integral/Utility-Meter **blueprint/package**; don't reinvent HA core); native RestoreSensor energy only if turnkey is wanted, **beta-gated on @Dillton's hardware** (maintainer HW reports null PoE power). Ship via **`v2.3.20-beta`** — **NOT v2.4.0**. Verify the DIAGNOSTIC-category Energy-Dashboard selection first.
+> 2. **librouteros — `ISS-260417` (reframed) + `ENH-260512-librouteros-test-matrix`** — **G0 done:** it's a **3.x `login_method` auth fix** (string→callable; `login_method="token"` users silently get `plain` — latent bug), **NOT a 4.x migration**; librouteros 4.0.0 changes nothing the integration uses. **Fix-first** under the current `<4.0` pin, live-validate plain+token, **then** lift cap to `>=4.0,<5` separately. Renumber salvage-branch ADR-010 → ADR-015; add a kwargs-assertion test (CI mocks are blind — a live router is the gate).
 >
-> **Released v2.3.19 (2026-06-14, CR-260614-release-v2.3.19):** FF `dev→master`, GitHub Release `v2.3.19`. **Branch-sync gate added** (`branch-sync-guard.yml`): enforces `master ⊆ dev` + PRs-to-master-from-dev-only, so releases are fast-forward and the branches can't silently diverge. **`#82` stays OPEN** — read-only fix shipped but unvalidated (reporter unresponsive; our live read-only test was inconclusive/contaminated).
+> **Shipped/released 2026-06-14:** **v2.3.19 stable** ([release](https://github.com/jnctech/homeassistant-mikrotik_router/releases/tag/v2.3.19); CR-260614-release-v2.3.19) — `dev→master` PR-merge + back-merge, GitHub Release (zip built), @ahharvey credited. **Branch-sync gate** (`branch-sync-guard.yml`) enforces `master ⊆ dev`. **SonarCloud S1172** false positive (diagnostics `hass` = HA-required signature) excluded in-repo ([#108](https://github.com/jnctech/homeassistant-mikrotik_router/pull/108)). **`#82` CLOSED** by maintainer — read-only fix shipped; reporter unresponsive; our live read-only test was inconclusive (the integration user `sa_haas` is the write-capable `haas` group, so it never exercised the read path — a clean integration-reload test or reporter confirm would re-validate). **HA roadmap:** config-entry-listener + reload deprecated 2026.6 → **errors 2026.12** (`ISS-260614-configflow-reload-deprecation`).
 >
 > **Other open threads (durable):**
 > - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — syrupy wiring → `setup_integration`/`mock_config_entry` fixture → realistic per-path `MockMikrotikAPI` fixtures (make-or-break) → per-platform exemplars → drop `sonar-project.properties` platform-coverage exclusions → extract portable template to `config/docs/templates/hacs-testing/`. Entity-output only; freeze MAC lookup + time.
@@ -19,7 +19,7 @@
 > - **#76** capsman client shows AP name vs bridge name (low-pri, @fuecy). **`ISS-260608-cleanup-over-logging`** (#92, per-entity removal → DEBUG).
 > - **Coordinator decomposition — DEFERRED** (would be ADR-016) until a concrete trigger; the host-merge is the live-bug area.
 >
-> **Standards:** refresh this `## In-flight` block on `dev` at session-end; **don't delete a merged PR branch immediately** — it races the `validate` workflow against the (now-missing) PR ref (cosmetic red on the closed PR). Live validation each release per `docs/release-validation.md`.
+> **Standards:** all PRs target `dev`; `master` is release-only via **PR + immediate back-merge** (branch protection blocks a direct FF) — the guard enforces `master ⊆ dev`. Refresh this `## In-flight` on `dev` at session-end; don't delete merged PR branches immediately (validate-workflow race). Live validation each release per `docs/release-validation.md`.
 
 ## Current Priorities
 
@@ -134,12 +134,28 @@ A `*_environment_<name>` sensor reports an empty string (`''`) as its state when
 **Type:** Enhancement (new sensors)
 **Priority:** Medium
 **Created:** 2026-05-09
-**Status:** 🟡 Open — scoped on retained branch `docs/enh-260509-poe-energy` (not merged to `dev`)
+**Status:** 🟡 Open — **G0 design panel done 2026-06-14.** Recommend **Option A** (power sensors + Riemann/Utility-Meter blueprint); native energy is the turnkey alternative, beta-gated. Target **v2.3.20-beta** (not v2.4.0). Scoped notes on retained branch `docs/enh-260509-poe-energy`.
 
 **Summary:**
 Native per-port PoE-out **energy** sensors (kWh, `total_increasing`) derived from the existing PoE-out **power** reading, so users get Energy-dashboard-compatible consumption without template sensors. Detail/scoping notes live on the retained branch `docs/enh-260509-poe-energy` (commit `339932e`, +22 lines to ISSUES); the reserved beta name `v2.4.0-beta` is earmarked for this feature. `[branch contents verified 2026-06-14; full design UNVERIFIED — to be scoped next session]`
 
-**Next step:** multi-agent panel (recon → review → junior-dev → senior-dev challenge, cite-or-null) to scope: integration vs HA `integration`/`utility_meter` helper, counter source + reset handling, which boards report PoE-out power, and test/golden coverage.
+**G0 verdict (2026-06-14):** HA's Energy Dashboard consumes *energy* (kWh, `total_increasing`); the existing PoE *power* sensors are valid power inputs, but HA's idiomatic path for power-only devices is the **Integration (Riemann) + Utility Meter helper** — which already does trapezoidal Riemann + restart-persistence. RouterOS exposes only instantaneous power (no energy accumulator), so "native energy" = doing in-integration what HA core already does. **Recommended Option A:** keep power sensors, ship a **blueprint/package** that creates the helpers (closes #59 without reinventing core). **Option B** (native `RestoreSensor` energy, the branch plan) only if turnkey UX is wanted — **beta-gated on @Dillton's hardware** (maintainer HW reports null PoE power, so accuracy/restore can't be self-validated). **Open G1 decisions:** total = sum-of-ports vs device-total; reuse `CONF_SENSOR_POE` vs a new toggle; whether the DIAGNOSTIC `entity_category` blocks Energy-Dashboard selection (verify on live HA). Full panel report in the 2026-06-14 handoff.
+
+---
+
+### ISS-260614-configflow-reload-deprecation — config-entry listener + reload deprecated (HA 2026.6 → error 2026.12)
+**Type:** Bug (HA deprecation)
+**Priority:** Medium — hard deadline HA Core **2026.12**
+**Created:** 2026-06-14
+**Status:** 🟡 Open
+
+**Symptom:** HA deprecated (2026.6) using a config-entry update listener together with config-flow reload methods (double-reload / race); becomes an **error in 2026.12**. `[verified: developers.home-assistant.io/blog]`
+
+**Where:** the integration uses both — `config_entry.add_update_listener(async_reload_entry)` (`__init__.py`) **and** `async_update_reload_and_abort(...)` in reauth (`config_flow.py`). `[verified: grep]`
+
+**Fix (per HA):** drop the listener and rely on the config-flow reload, **or** switch to `async_update_and_abort()` / set `reload_on_update=False`. Small change; land before 2026.12.
+
+**Note:** other 2026.x deprecations checked — `FlowHandler.show_advanced_options` (removed 2027.6) not used; MQTT publish-param change N/A. Python 3.14 already the HA runtime (CI covers 3.13/3.14).
 
 ---
 
@@ -479,7 +495,10 @@ Set `native_unit_of_measurement=MILLIAMPERE`; remove `suggested_unit_of_measurem
 **Type:** Bug
 **Priority:** Critical
 **Created:** 2026-04-17
-**Status:** 🟡 In Progress — hotfix branch `fix/librouteros-4x-pin` (v2.3.14) pins `librouteros<4.0`. Proper 4.x migration tracked separately.
+**Status:** 🟡 In Progress — hotfix (v2.3.14) pins `librouteros<4.0`. **Reframed by G0 panel 2026-06-14 (see Correction).**
+
+**Correction (G0 panel, 2026-06-14 — verified vs luqasz/librouteros source):**
+The `login_methods`→`login_method` (string→callable) change landed in **librouteros 3.0.0, NOT 4.0.x**. So the current code (`login_methods="plain"`, mikrotikapi.py) is wrong across the **whole pinned range** — the unknown kwarg is dropped and `connect()` falls back to the default `plain` callable, so it "works" by accident; **`login_method="token"` users silently get `plain` (latent auth bug)**. librouteros **4.0.0's only API change** is `cmd` made positional-only — **no impact** (the integration always passes the command positionally); `Path`/`query()`/exceptions are byte-identical 3.4.1↔4.0.0; the library is pure-Python (3.14 fine). **Revised plan:** (1) **fix-first** — map the config string to `librouteros.login.plain`/`token` in `MikrotikAPI.__init__` and pass `login_method=` (callable), under the **current `<4.0` pin**; live-validate plain AND token on a real router (CI mocks are blind — 4.0.0 is already installed locally and the mocked suite passes regardless). (2) **then** lift the cap to `librouteros>=4.0,<5` separately. Renumber the salvage-branch `ADR-010` (librouteros) → **ADR-015**. Naming: the fix can ride a `2.3.x`; the floor-bump is the real **v2.4.0** trigger (with the deferred coordinator decomposition).
 
 **Symptom:**
 Users on v2.3.13 (or any prior release) see: `connect() got an unexpected keyword argument 'login_methods'. Did you mean 'login_method'?`
