@@ -4,6 +4,30 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260616-leak-guardrail - redact leaked homelab MACs + add private-IP/MAC guard
+
+**Date:** 2026-06-16
+**Branch:** `chore/leak-guardrail` -> PR to `dev`
+**Status:** In Review
+
+### What changed
+- `scripts/check_no_homelab_leaks.py` (new) - fails if RFC1918 private IPv4 or MAC addresses appear in public, integration-facing files (`docs/` except `docs/internal/`, `custom_components/`, `README.md`, `info.md`). Allows documentation IP ranges, the `10.0.0.1` placeholder, example MAC OUIs (`AA:BB:CC`, `00:00:5E`), and an inline `leak-ok` marker. `tests/` is out of scope (example fixtures).
+- `.pre-commit-config.yaml` - local `homelab-leak-check` hook.
+- `.github/workflows/ci.yml` - new `homelab-leak` job (blocks merge on a finding).
+- `docs/decisions/ADR-013-entity-naming-disambiguation.md` - redacted six real client MAC addresses (live-validation evidence) to example `AA:BB:CC:DD:EE:0x` values. Behaviour/decision unchanged.
+
+### Why
+A homelab IP and client MACs leaked into ADR/ISSUES docs from pasted live-validation evidence (the IP/ADR-018 leak was caught and scrubbed in the #70 branch before merge; ADR-013's MACs were already on `dev`). This adds an automated guard so it cannot recur, and cleans the one remaining public occurrence. Note: redaction fixes the files going forward; the MACs remain in prior git history (purge requires a separate history rewrite).
+
+### Verification
+- `python scripts/check_no_homelab_leaks.py` passes on this branch (0 findings); fails (exit 1) with the offending `file:line` when a private IP/MAC is present (verified against the pre-redaction ADR-013).
+- ruff/bandit unaffected (script lives under `scripts/`, outside the scanned trees).
+
+### Release ops
+Lands on `dev`. No version bump (tooling/docs only).
+
+---
+
 ## CR-260614-release-v2.3.20-beta.2 - pre-release rolling up PoE energy + librouteros + deprecation fixes
 
 **Date:** 2026-06-14
