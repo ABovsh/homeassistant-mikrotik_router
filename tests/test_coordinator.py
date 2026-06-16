@@ -2782,6 +2782,45 @@ def test_netwatch_basic_parsing():
     assert nw["enabled"] is True
 
 
+def test_netwatch_parses_name():
+    """get_netwatch surfaces the netwatch name field, alongside its siblings (#70)."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/tool/netwatch": [
+                {
+                    "host": "1.1.1.1",
+                    "name": "WAN uplink",
+                    "type": "icmp",
+                    "comment": "edge",
+                    "disabled": False,
+                },
+            ],
+        }
+    )
+    coordinator.get_netwatch()
+    nw = coordinator.ds["netwatch"]["1.1.1.1"]
+    assert nw["name"] == "WAN uplink"
+    # the new vals entry must not disturb sibling parsing
+    assert nw["comment"] == "edge"
+    assert nw["enabled"] is True
+
+
+def test_netwatch_name_defaults_empty_when_absent_or_empty():
+    """Absent or present-empty name both resolve to '' (from_entry default), so
+    custom_name falls back to comment/static rather than raising."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/tool/netwatch": [
+                {"host": "1.1.1.1", "type": "icmp"},  # name absent (older ROS)
+                {"host": "2.2.2.2", "name": "", "type": "icmp"},  # name present-empty
+            ],
+        }
+    )
+    coordinator.get_netwatch()
+    assert coordinator.ds["netwatch"]["1.1.1.1"]["name"] == ""
+    assert coordinator.ds["netwatch"]["2.2.2.2"]["name"] == ""
+
+
 # ---------------------------------------------------------------------------
 # Group AA: get_system_routerboard() — routerboard parsing
 # ---------------------------------------------------------------------------

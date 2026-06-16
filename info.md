@@ -10,6 +10,9 @@ Monitor and control your MikroTik router from Home Assistant.
 
 ![Mikrotik Logo](https://raw.githubusercontent.com/tomaae/homeassistant-mikrotik_router/master/docs/assets/images/ui/header.png)
 
+### What's new in v2.3.20-beta.3
+- **Netwatch entities are named by their netwatch `name`** — if you set a distinct `name` on each netwatch entry, that name is now shown in Home Assistant instead of a shared `comment`, so entries that share a comment are no longer indistinguishable. Entries with no name keep showing their comment (or "Netwatch" if neither is set). Your entity IDs and automations are unchanged. Addresses #70.
+
 ### What's new in v2.3.20-beta.2
 Beta validating native **PoE-out energy** sensors (#59) before a stable release.
 - **PoE energy for the Energy Dashboard** — per-port energy sensors (kWh, `total_increasing`) + a device total, restart-persistent. Enable the existing PoE sensors option.

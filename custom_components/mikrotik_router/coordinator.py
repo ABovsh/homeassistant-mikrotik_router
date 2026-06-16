@@ -1690,6 +1690,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             key="host",
             vals=[
                 {"name": "host"},
+                {"name": "name"},
                 {"name": "type"},
                 {"name": "interval"},
                 {"name": "port"},
