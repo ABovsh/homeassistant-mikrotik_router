@@ -22,7 +22,7 @@
 > - **Test-catch hardening (retrospective on the deprecation/kwarg bugs — all warnings/silent fallbacks our mocked unit tests can't see):** deprecation-as-failure `setup_integration` test (folded into `ENH-260608` goldens) + `ENH-260614-ha-canary-ci` (non-blocking HA-latest CI lane).
 > - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — `setup_integration` fixture → per-path `MockMikrotikAPI` fixtures → per-platform exemplars → drop `sonar-project.properties` exclusions → portable `config/docs/templates/hacs-testing/`. Unlocks the deprecation-as-failure test above.
 > - **Gold/Platinum conformance** — `reconfiguration-flow` + `strict-typing`.
-> - **`ENH-260608-netwatch-naming` (#70)**, **#76** capsman AP-vs-bridge name (@fuecy), **`ISS-260608-cleanup-over-logging`** (#92).
+> - **`ENH-260608-netwatch-naming` (#70)** — 🟢 In Review on `feature/netwatch-naming` for **v2.3.20-beta.3** (ADR-018); spun off **`ENH-260615-netwatch-host-key-collision`** (same-host probe collapse, deferred). · **#76** capsman AP-vs-bridge name (@fuecy), **`ISS-260608-cleanup-over-logging`** (#92).
 > - **Coordinator decomposition — DEFERRED** (would be ADR-016) until a concrete trigger.
 >
 > **Standards:** all PRs target `dev`; `master` release-only via PR + immediate back-merge (guard enforces `master ⊆ dev`). Betas are pre-releases off `dev` (no `dev→master`). Refresh this `## In-flight` at session-end; don't delete merged PR branches immediately (validate race). Live validation each release per `docs/release-validation.md`. **Tooling gotchas:** run tests in Docker (`docker run --rm -v <repo>:/app -v /home/jc/mikrotik-test/.venv:/venv -w /app python:3.14 /venv/bin/python -m pytest`), NOT bare-WSL (dead venv symlink); Edit/Write intermittently EBADF on this OneDrive repo → patch via `C:\tmp` script + WSL `python3`; `manifest.json` is CRLF (`sed` the version line, don't python-rewrite the file).
@@ -105,15 +105,23 @@ On networks with many clients or multiple DHCP servers, distinct entities receiv
 **Type:** Enhancement (entity naming / quality)
 **Priority:** Low
 **Created:** 2026-06-08
-**Status:** 🔵 Filed (follow-up to ENH-260608-entity-naming)
+**Status:** 🟢 In Review — implemented on `feature/netwatch-naming` for v2.3.20-beta.3 (CR-260615-netwatch-naming, ADR-018)
 
 **Request ([jnctech #70](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70)):** with 50+ netwatch entries, many **share a `comment`**, so they collapse to one display name; the user wants the distinct **`name`** field shown instead.
 
-**Same class of bug as ENH-260608-entity-naming, but needs more than its `data_name_compose` flag:**
-- `get_netwatch` (`coordinator.py:~1542`) does **not** parse a `name` field — it must be added to the dataset first.
-- netwatch's descriptor sets `data_name_comment=True`, so the collapse fires via the **comment branch** (`entity.py:302-303`), not (only) the `data_name==data_reference` shortcut. Honoring the request requires a **name-vs-comment precedence decision** that conflicts with current comment-first behaviour.
+**Resolution (ADR-018):** new `data_name_prefer` flag on the binary_sensor description; netwatch now resolves its display name **`name` (non-empty) → `comment` → static "Netwatch"**, bare (no suffix, since `has_entity_name` prepends the `<inst> Netwatch` device). `get_netwatch` parses `name` (`vals`, defaults `""`); `data_reference="host"` kept, so `unique_id`/entity_ids are unchanged. A new flag (not the `data_name_compose` reorder) was needed because the 5 `data_name_comment` switches require comment-first ordering. Scope: **entity display names only** (per-host devices out of scope). Same-host key collision is a separate root → **ENH-260615**.
 
-**Plan:** extend `get_netwatch` to parse `name`; decide precedence (likely `name` when present, else `comment`); reuse the general `data_name_compose` mechanism from ADR-013 where applicable. Separate PR — kept out of ADR-013 to keep that change small and gated.
+---
+
+### ENH-260615-netwatch-host-key-collision — same-host netwatch probes collapse to one entity
+**Type:** Enhancement (entity identity)
+**Priority:** Low
+**Created:** 2026-06-15
+**Status:** 🔵 Filed (split out from ENH-260608-netwatch-naming / #70)
+
+`get_netwatch` keys netwatch on `host` (`coordinator.py:1690`), which is **not unique**: RouterOS allows multiple probes on the same host (different type/port). Two same-host entries resolve to the same uid and overwrite each other in `data[uid]` (`apiparser.py:143`, `_get_uid_from_keys` returns `entry["host"]`) → only **one** HA entity. Live-observed: two netwatch entries (`.id` `*1`/`*2`) on the same `host` surface as a single entity.
+
+This is distinct from #70 (display-name collapse, fixed in ADR-018) — naming cannot fix a genuine key collision. `key_secondary` is an absent-key fallback, not a composite (`apiparser.py:163-171`), so it can't separate same-host rows. RouterOS exposes a unique `.id` (already used as a key elsewhere — `coordinator.py:1277/1567/3095`), but it is **unstable across reorders**, so re-keying changes `unique_id` and needs an **entity-registry migration**. Defer until a concrete need; design the migration first.
 
 ---
 

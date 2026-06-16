@@ -4,6 +4,33 @@ Changes listed in reverse chronological order.
 
 ---
 
+## CR-260615-netwatch-naming - name netwatch entities by `name`, not shared `comment` (#70)
+
+**Date:** 2026-06-15
+**Branch:** `feature/netwatch-naming` -> PR to `dev`
+**Status:** In Review
+
+### What changed
+- `entity.py`: extracted the uid-path naming into `_compose_uid_name` (ADR-007; `custom_name` is now a thin dispatcher) and added a first-branch precedence for descriptors with `data_name_prefer=True` -> resolve display name `data_name` (non-empty, whitespace-stripped) -> `comment` -> static `name`, returned **bare** (no suffix). `getattr`-guarded so other platforms are unaffected.
+- `binary_sensor_types.py`: added `data_name_prefer: bool = False` to `MikrotikBinarySensorEntityDescription`; added `"name"` to `DEVICE_ATTRIBUTES_NETWATCH`; netwatch descriptor `data_name="host"` -> `"name"`, `+data_name_prefer=True`, dropped `data_name_comment=True`. `data_uid`/`data_reference` stay `"host"`.
+- `coordinator.py` `get_netwatch`: parse `name` (`{"name": "name"}` in `vals`; `from_entry` defaults `""` for older ROS).
+- Tests: real-typed `_binary_entity_with_real_desc` + parametrized netwatch precedence, IPv6 unique_id, duplicate-name residual, dhcp/switch scope guards (prefer stays off), coordinator name-parse cases.
+- Docs: `ADR-018-netwatch-name-precedence`; `manifest.json` `2.3.20-beta.2` -> `2.3.20-beta.3`; README/info.md What's New; `ENH-260608` -> In Review; filed `ENH-260615-netwatch-host-key-collision`.
+
+### Why
+[#70](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70): users sharing one `comment` across many netwatch entries saw indistinguishable entities. Showing the distinct netwatch `name` (with comment/static fallback) disambiguates them. Bare (no suffix) because `has_entity_name` already prepends the `<inst> Netwatch` device name — a suffix would read "Netwatch ... Netwatch". A new flag (not the ADR-013 `data_name_compose` reorder) was required because the 5 `data_name_comment` switches need comment-first ordering. `unique_id` stays host-derived -> no migration. See ADR-018.
+
+### Verification
+- ruff lint + format clean (container `ruff==0.9.0`).
+- Full suite **669 passed, 5 skipped** (WSL python:3.13); total coverage **88%** (>=80% gate). `binary_sensor_types.py` 100%, `entity.py` 95%.
+- Cognitive complexity (`complexipy`, SonarSource definition): `custom_name` **4**, `_compose_uid_name` **12** — both <=15. The whitespace-strip `and` tipped the in-place form to 16, so the helper was extracted per ADR-007.
+- Live: full `validate-live-sensors` matrix on a RouterOS 7.22 fleet (beta.3 side-load) — name-shown and name-less->comment both confirmed; all sensor classes cross-checked against router ground-truth, 0 integration entities unavailable, no regressions.
+
+### Release ops
+Lands on `dev`; pre-release tag `v2.3.20-beta.3` off `dev` -> `release.yml`. No `dev->master`.
+
+---
+
 ## CR-260614-release-v2.3.20-beta.2 - pre-release rolling up PoE energy + librouteros + deprecation fixes
 
 **Date:** 2026-06-14
