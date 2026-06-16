@@ -326,6 +326,23 @@ class MikrotikEntity(CoordinatorEntity[_MikrotikCoordinatorT], Entity):
 
             return f"{self.entity_description.name}"
 
+        return self._compose_uid_name()
+
+    def _compose_uid_name(self) -> str:
+        """Resolve the display name for a uid-keyed entity (ADR-007 extraction)."""
+        # data_name_prefer surfaces a distinct per-entry data_name over a
+        # (possibly shared) comment, falling back comment -> static name. Used
+        # by netwatch so entries sharing a comment are disambiguated. Other
+        # platforms' descriptions lack the field, so read it defensively.
+        # See ADR-018.
+        if getattr(self.entity_description, "data_name_prefer", False):
+            value = self._data.get(self.entity_description.data_name)
+            if value and value.strip():
+                return f"{value}"
+            if self._data.get("comment"):
+                return f"{self._data['comment']}"
+            return f"{self.entity_description.name}"
+
         if self.entity_description.data_name_comment and self._data.get("comment"):
             return f"{self._data['comment']}"
 

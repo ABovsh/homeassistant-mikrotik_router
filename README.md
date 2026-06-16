@@ -21,6 +21,10 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
+## What's New — v2.3.20-beta.3
+
+- **Netwatch entities named by their netwatch `name`.** If you give each netwatch entry a distinct `name`, Home Assistant now shows that name instead of a shared `comment` — so entries that share a comment are no longer indistinguishable in the entity list, dashboards and automation pickers. Entries without a name fall back to the comment, then to "Netwatch". `unique_id`s are unchanged, so existing entity IDs and automations are preserved. Addresses [#70](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70). See [ADR-018](docs/decisions/ADR-018-netwatch-name-precedence.md).
+
 ## What's New — v2.3.20-beta.2
 
 Beta for validating native **PoE-out energy** sensors (#59) on real metering hardware before a stable release.
