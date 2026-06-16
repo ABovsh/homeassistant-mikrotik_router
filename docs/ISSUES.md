@@ -2,30 +2,29 @@
 
 ## In-flight
 
-> **Updated 2026-06-14 (session-end, PoE-energy beta cycle).** Built the PoE-out energy feature (the prior In-flight's #1 next item), did the librouteros fix (#2), swept upstream for portable issues, cleared two HA deprecations, and cut two pre-releases. Full live per-class validation passed on the 4-device fleet.
+> **Updated 2026-06-16 (session-end, netwatch-naming cycle).** Shipped the netwatch `name` feature (#70), added a homelab-leak CI guardrail, and cut **v2.3.20-beta.3**. Full live per-class validation passed on the 4-device fleet (beta.3 side-load).
 >
-> **Shipped to `dev` this session (all merged, CI green on py3.13/3.14):**
-> - **[#109](https://github.com/jnctech/homeassistant-mikrotik_router/pull/109)** `ENH-260509-poe-energy` (#59) — native PoE-out **energy** sensors (kWh, `total_increasing`): per-port + device total, `RestoreSensor`-persisted. **Two paths:** measured (real `poe-out-power`) and **nameplate-estimated** (via `/ip/neighbor` board lookup, single-neighbour only) surfaced as `power_source`. **ADR-017** — entity owns the accumulator, coordinator emits per-poll deltas; dt = configured scan interval (mirrors traffic calc). 30 tests.
-> - **[#110](https://github.com/jnctech/homeassistant-mikrotik_router/pull/110)** `ISS-260417` fix-first — librouteros `login_method` callable (was the dropped pre-3.0 `login_methods` string → silent plain fallback). `<4.0` pin unchanged.
-> - **[#111](https://github.com/jnctech/homeassistant-mikrotik_router/pull/111)** HA deprecations cleanup — `device_tracker` ScannerEntity/SourceType imports ([tomaae#495], removed HA 2027.6) + config-flow reload double-reload (`ISS-260614`, error HA 2026.12; reauth → `async_update_and_abort`, listener kept).
-> - **[#112](https://github.com/jnctech/homeassistant-mikrotik_router/pull/112)** `TestConnectKwargs` pins the `librouteros.connect()` call contract (catches the silently-dropped-kwarg class).
-> - **[#113](https://github.com/jnctech/homeassistant-mikrotik_router/pull/113)** release bump → **v2.3.20-beta.2**.
+> **Shipped to `dev` this session (both merged, CI green on py3.13/3.14):**
+> - **[#114](https://github.com/jnctech/homeassistant-mikrotik_router/pull/114)** `ENH-260608-netwatch-naming` (#70) — netwatch entities now resolve `name` (non-empty) → `comment` → static "Netwatch", **bare** (no suffix; `has_entity_name` prepends `<inst> Netwatch`). New netwatch-only `data_name_prefer` flag; `get_netwatch` parses `name`; `custom_name` split into a dispatcher + `_compose_uid_name` (ADR-007) after the whitespace-strip tipped complexity to 16. `unique_id` host-derived → no migration. **ADR-018**, CR-260615. 11 new tests (669 total, 88% cov). Spun off **ENH-260615** (same-host key collision, deferred).
+> - **[#115](https://github.com/jnctech/homeassistant-mikrotik_router/pull/115)** `CR-260616-leak-guardrail` — `scripts/check_no_homelab_leaks.py` (pre-commit hook + CI job `homelab-leak`) fails on private IPs/MACs in public files (docs excl. internal, custom_components, README, info.md); redacted six real client MACs in ADR-013. **A homelab IP + Pi-hole/DNS-failover infra leaked into ADR-018/ISSUES from live-validation evidence — caught and scrubbed in the #114 branch before merge (force-push `33874be`→`a419b8d`).** Git-history purge of the old values: **won't-do** (user: low-risk, no action).
 >
-> **Released 2026-06-14 (pre-releases off `dev`):** **[v2.3.20-beta.1](https://github.com/jnctech/homeassistant-mikrotik_router/releases/tag/v2.3.20-beta.1)** (PoE energy) and **[v2.3.20-beta.2](https://github.com/jnctech/homeassistant-mikrotik_router/releases/tag/v2.3.20-beta.2)** (rolls up #110–#112). Both built the zip via `release.yml`. @Dillton pinged on #59 to install + validate the **measured** path on metering hardware. Also posted to upstream [tomaae#497](https://github.com/tomaae/homeassistant-mikrotik_router/issues/497) (fork pointer + alternative nod). **Re-validated on deployed beta.2 (2026-06-14):** restart-restore confirmed **live** (recorder history shows resume-not-reset + 0-delta first poll across a HA restart -> residual risk #3 CLOSED on real hardware); deprecation warnings confirmed gone (#111 works in the wild — only a benign backup-load websocket-backpressure log remained, not a mikrotik fault).
+> **Released 2026-06-16 (pre-release off `dev`):** **[v2.3.20-beta.3](https://github.com/jnctech/homeassistant-mikrotik_router/releases/tag/v2.3.20-beta.3)** (netwatch naming; rolls up beta.1/2). `release.yml` built the zip. Reporter **@L2jLiga** given HACS beta-install steps on #70 ([comment](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70#issuecomment-4714957763)); **awaiting their reply** on whether entity-level naming suffices vs wanting per-host devices.
+>
+> **Live HA state:** the homelab HA is running the **side-loaded beta.3** (user chose to keep it, not restore); beta.2 backup parked at `/config/mikrotik_router.bak-beta2` (outside `custom_components/`). It will be overwritten when HACS installs the official beta.3.
 >
 > **NEXT SESSION:**
-> 1. **Await @Dillton's measured-energy validation on #59** (the only residual risk still open — no metering hardware in the maintainer fleet) → then cut **stable v2.3.20** (`dev→master` PR + back-merge). One live G1 to eyeball: the energy entity is **selectable in the Energy Dashboard** with `entity_category=None` (tests can't verify this). **Restart-restore + deprecation-clearance already confirmed live on beta.2.**
-> 2. **librouteros cap-lift** — `ENH-260512-librouteros-test-matrix`: add the 3.4.1 / latest-3.x / expected-fail-4.x CI matrix, then lift `manifest` to `>=4.0,<5` (the floor-bump is the real **v2.4.0** trigger, with the deferred coordinator decomposition).
+> 1. **Cut stable v2.3.20** once **both** gates clear: @Dillton's measured-energy validation on #59 (no metering hardware in fleet) **and** @L2jLiga's #70 reply. Stable rolls up beta.1/2/3 via a `dev→master` PR + back-merge. One live G1 to eyeball: the PoE energy entity is **selectable in the Energy Dashboard** (`entity_category=None`, tests can't verify). Restart-restore + deprecation-clearance already confirmed live on beta.2; netwatch naming confirmed live on beta.3.
+> 2. **librouteros cap-lift** — `ENH-260512-librouteros-test-matrix`: 3.4.1 / latest-3.x / expected-fail-4.x CI matrix, then lift `manifest` to `>=4.0,<5` (the floor-bump is the **v2.4.0** trigger, with deferred coordinator decomposition).
 >
 > **Open threads (durable):**
-> - **Upstream-ported enhancements (filed this session):** `ENH-260614-sfp-temperature` ([tomaae#499], Low — hardware-gated, no SFP-temp board in fleet) · `ENH-260614-lte-modem-info` ([tomaae#249], Medium — high-demand differentiator, needs LTE hardware/contributor gate).
-> - **Test-catch hardening (retrospective on the deprecation/kwarg bugs — all warnings/silent fallbacks our mocked unit tests can't see):** deprecation-as-failure `setup_integration` test (folded into `ENH-260608` goldens) + `ENH-260614-ha-canary-ci` (non-blocking HA-latest CI lane).
-> - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — `setup_integration` fixture → per-path `MockMikrotikAPI` fixtures → per-platform exemplars → drop `sonar-project.properties` exclusions → portable `config/docs/templates/hacs-testing/`. Unlocks the deprecation-as-failure test above.
-> - **Gold/Platinum conformance** — `reconfiguration-flow` + `strict-typing`.
-> - **`ENH-260608-netwatch-naming` (#70)** — 🟢 In Review on `feature/netwatch-naming` for **v2.3.20-beta.3** (ADR-018); spun off **`ENH-260615-netwatch-host-key-collision`** (same-host probe collapse, deferred). · **#76** capsman AP-vs-bridge name (@fuecy), **`ISS-260608-cleanup-over-logging`** (#92).
-> - **Coordinator decomposition — DEFERRED** (would be ADR-016) until a concrete trigger.
+> - **`ENH-260608-netwatch-naming` (#70)** — ✅ Done/shipped beta.3; **awaiting reporter confirmation** (entity vs device naming). **`ENH-260615-netwatch-host-key-collision`** — Filed/deferred (same-host probe collapse; needs `.id` re-key + unique_id migration). **`ISS-260616-test-fixture-subnet`** — Filed/Low (test_coordinator fixtures use the real `192.168.88.x` subnet; guard excludes tests).
+> - **Upstream-ported enhancements:** `ENH-260614-sfp-temperature` ([tomaae#499], Low — hardware-gated) · `ENH-260614-lte-modem-info` ([tomaae#249], Medium — needs LTE hardware/contributor).
+> - **Test-catch hardening:** deprecation-as-failure `setup_integration` test (folded into `ENH-260608` goldens) + `ENH-260614-ha-canary-ci` (non-blocking HA-latest lane).
+> - **Goldens BUILD (ADR-014 / `ENH-260608-test-suite-hardening`)** — `setup_integration` fixture → per-path `MockMikrotikAPI` fixtures → per-platform exemplars → drop `sonar-project.properties` exclusions → portable `config/docs/templates/hacs-testing/`.
+> - **#76** capsman AP-vs-bridge name (@fuecy), **`ISS-260608-cleanup-over-logging`** (#92).
+> - **Gold/Platinum conformance** — `reconfiguration-flow` + `strict-typing`. **Coordinator decomposition — DEFERRED** (would be ADR-016).
 >
-> **Standards:** all PRs target `dev`; `master` release-only via PR + immediate back-merge (guard enforces `master ⊆ dev`). Betas are pre-releases off `dev` (no `dev→master`). Refresh this `## In-flight` at session-end; don't delete merged PR branches immediately (validate race). Live validation each release per `docs/release-validation.md`. **Tooling gotchas:** run tests in Docker (`docker run --rm -v <repo>:/app -v /home/jc/mikrotik-test/.venv:/venv -w /app python:3.14 /venv/bin/python -m pytest`), NOT bare-WSL (dead venv symlink); Edit/Write intermittently EBADF on this OneDrive repo → patch via `C:\tmp` script + WSL `python3`; `manifest.json` is CRLF (`sed` the version line, don't python-rewrite the file).
+> **Standards:** all PRs target `dev`; `master` release-only via PR + immediate back-merge (guard enforces `master ⊆ dev`). Betas are pre-releases off `dev` (no `dev→master`). Refresh this `## In-flight` at session-end; don't delete merged PR branches immediately. Live validation each release per `docs/release-validation.md`. **Tooling gotchas:** the **WSL2-native Docker** runner works well (stage the worktree to ext4 `~/mikrotik-nw`, reuse `.venv`; see `docs/internal/test-runner-docker-vm01.md` — the bare-WSL "dead venv" note is the `/mnt/c` 9p path, not the ext4 one). **HA side-load:** put any backup **outside** `/config/custom_components/` — a `*.bak` dir there with a `manifest.json` collides on domain and breaks the integration (hit this session). `manifest.json` is CRLF (`sed`/Edit the version line, don't python-rewrite). New CI gate: `homelab-leak` (no private IPs/MACs in public docs).
 
 ## Current Priorities
 
@@ -105,7 +104,7 @@ On networks with many clients or multiple DHCP servers, distinct entities receiv
 **Type:** Enhancement (entity naming / quality)
 **Priority:** Low
 **Created:** 2026-06-08
-**Status:** 🟢 In Review — implemented on `feature/netwatch-naming` for v2.3.20-beta.3 (CR-260615-netwatch-naming, ADR-018)
+**Status:** ✅ Done — merged to `dev` ([#114](https://github.com/jnctech/homeassistant-mikrotik_router/pull/114), CR-260615, ADR-018) and shipped in **v2.3.20-beta.3**. Live-validated on the 4-device fleet (name-shown + name-less→comment). Reporter (#70) given HACS beta-install steps; **awaiting their confirmation** that entity-level naming suffices vs wanting per-host devices.
 
 **Request ([jnctech #70](https://github.com/jnctech/homeassistant-mikrotik_router/issues/70)):** with 50+ netwatch entries, many **share a `comment`**, so they collapse to one display name; the user wants the distinct **`name`** field shown instead.
 
@@ -122,6 +121,16 @@ On networks with many clients or multiple DHCP servers, distinct entities receiv
 `get_netwatch` keys netwatch on `host` (`coordinator.py:1690`), which is **not unique**: RouterOS allows multiple probes on the same host (different type/port). Two same-host entries resolve to the same uid and overwrite each other in `data[uid]` (`apiparser.py:143`, `_get_uid_from_keys` returns `entry["host"]`) → only **one** HA entity. Live-observed: two netwatch entries (`.id` `*1`/`*2`) on the same `host` surface as a single entity.
 
 This is distinct from #70 (display-name collapse, fixed in ADR-018) — naming cannot fix a genuine key collision. `key_secondary` is an absent-key fallback, not a composite (`apiparser.py:163-171`), so it can't separate same-host rows. RouterOS exposes a unique `.id` (already used as a key elsewhere — `coordinator.py:1277/1567/3095`), but it is **unstable across reorders**, so re-keying changes `unique_id` and needs an **entity-registry migration**. Defer until a concrete need; design the migration first.
+
+---
+
+### ISS-260616-test-fixture-subnet — test fixtures use the maintainer's real management subnet
+**Type:** Chore (privacy hygiene)
+**Priority:** Low
+**Created:** 2026-06-16
+**Status:** 🔵 Filed
+
+`tests/test_coordinator.py` fixtures use the real `192.168.88.x` management subnet (the `_host` helper default and several DHCP/host fixtures). Pre-existing; low sensitivity (a /24 number). The CR-260616 leak guard deliberately **excludes `tests/`** (example data), so this is not auto-caught. Genericize to a documentation/`192.168.1.x` form when convenient; verify no assertion pins the exact value first. (The public-doc leaks — ADR-018 IP/infra and ADR-013 MACs — were already scrubbed; see CR-260616.)
 
 ---
 
