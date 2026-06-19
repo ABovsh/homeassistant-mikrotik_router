@@ -657,10 +657,30 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         raise UpdateFailed("Mikrotik Disconnected")
 
     # ---------------------------
+    #   _async_ensure_connected
+    # ---------------------------
+    async def _async_ensure_connected(self) -> None:
+        """Re-establish the API connection at the start of a cycle if it dropped.
+
+        Every API call in the update cycle is gated behind ``api.connected()``
+        (via ``_run_if_enabled`` and explicit guards), so once the connection
+        drops nothing else ever reaches ``connect()`` and the coordinator can
+        never recover — entities stay ``unavailable`` until a manual reload.
+        This actively reconnects (respecting the API client's retry throttle)
+        and raises if the device is still unreachable so HA retries next cycle.
+        """
+        if self.api.connected():
+            return
+        await self.hass.async_add_executor_job(self.api.connection_check)
+        if not self.api.connected():
+            self._raise_disconnected()
+
+    # ---------------------------
     #   _async_update_data
     # ---------------------------
     async def _async_update_data(self):
         """Update Mikrotik data"""
+        await self._async_ensure_connected()
         hwinfo_ran = await self._async_update_hwinfo()
 
         # get_system_resource already ran inside _async_update_hwinfo;

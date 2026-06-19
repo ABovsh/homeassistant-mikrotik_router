@@ -5236,3 +5236,55 @@ def test_readonly_capability_cascade_unblocked_end_to_end():
     assert coordinator.support_wireless is True
     assert coordinator._wifimodule == "wifi"
     assert coordinator.support_capsman is False
+
+
+# ---------------------------------------------------------------------------
+# Group: _async_ensure_connected — self-healing reconnect (ISS: disconnect
+# was permanent because every API call is gated on api.connected())
+# ---------------------------------------------------------------------------
+
+
+def _coord_with_executor():
+    """Coordinator whose hass.async_add_executor_job runs the func inline."""
+    coord = object.__new__(MikrotikCoordinator)
+    coord.api = MagicMock()
+    hass = MagicMock()
+
+    async def _run(func, *args):
+        return func(*args)
+
+    hass.async_add_executor_job = AsyncMock(side_effect=_run)
+    coord.hass = hass
+    return coord
+
+
+@pytest.mark.asyncio
+async def test_ensure_connected_noop_when_connected():
+    coord = _coord_with_executor()
+    coord.api.connected.return_value = True
+    await coord._async_ensure_connected()
+    coord.api.connection_check.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ensure_connected_reconnects_when_dropped():
+    """When disconnected, the cycle must actively try to reconnect."""
+    coord = _coord_with_executor()
+    # connected() False on entry, True after connection_check reconnects
+    coord.api.connected.side_effect = [False, True]
+    coord.api.connection_check.return_value = True
+    await coord._async_ensure_connected()
+    coord.api.connection_check.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_connected_raises_when_reconnect_fails():
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    coord = _coord_with_executor()
+    coord.api.connected.return_value = False
+    coord.api.connection_check.return_value = False
+    coord.api.error = ""
+    with pytest.raises(UpdateFailed):
+        await coord._async_ensure_connected()
+    coord.api.connection_check.assert_called_once()
