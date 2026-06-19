@@ -134,6 +134,7 @@ class MockMikrotikAPI:
 
     def __init__(self, responses=None):
         self.responses = responses or {}
+        self.calls = []
         self.error = ""
         self.disable_health = False
         self.client_traffic_last_run = None
@@ -148,6 +149,7 @@ class MockMikrotikAPI:
         pass
 
     def query(self, path, command=None, args=None):
+        self.calls.append((path, command, args))
         key = (path, command) if command else path
         return self.responses.get(key, [])
 

@@ -1958,7 +1958,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             monitor = self.api.query(
                 "/interface/lte",
                 command="monitor",
-                args={".id": iface_id, "once": True},
+                args={".id": iface_name, "once": True},
             )
             if monitor:
                 monitor_data = parse_api(

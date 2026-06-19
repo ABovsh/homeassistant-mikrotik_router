@@ -179,6 +179,21 @@ class TestGetLte:
         assert data["lte-band"] == "B3"
         assert data["lte-bandwidth"] == "20Mhz"
 
+    def test_monitor_uses_interface_name_not_internal_id(self):
+        """RouterOS LTE monitor expects =.id=<interface name>, not internal *id."""
+        coordinator = make_lte_coordinator(
+            iface_source=SAMPLE_IFACE,
+            monitor_source=SAMPLE_MONITOR,
+        )
+
+        coordinator.get_lte()
+
+        assert (
+            "/interface/lte",
+            "monitor",
+            {".id": "lte1", "once": True},
+        ) in coordinator.api.calls
+
     def test_missing_rssi_is_derived(self):
         """When the modem omits rssi, it is derived from rsrp/rsrq/bandwidth."""
         monitor_no_rssi = [row for row in SAMPLE_MONITOR]
