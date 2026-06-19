@@ -73,6 +73,7 @@ def make_coordinator(options=None, api_responses=None, major_fw_version=6):
         "environment": {},
         "ups": {},
         "gps": {},
+        "lte": {},
         "netwatch": {},
         "raw": {},
         "container": {},
@@ -82,6 +83,7 @@ def make_coordinator(options=None, api_responses=None, major_fw_version=6):
     coordinator.minor_fw_version = 0
     coordinator.api = MockMikrotikAPI(responses=api_responses or {})
     coordinator._known_uids = {}
+    coordinator.support_lte = False
 
     cfg = MagicMock()
     cfg.options = options or {}
@@ -3356,6 +3358,7 @@ def test_capabilities_v6_wireless():
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator.host = "10.0.0.1"
     coordinator._wifimodule = "wireless"
     coordinator.get_capabilities()
@@ -3379,6 +3382,7 @@ def test_capabilities_v6_no_wireless():
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator.host = "10.0.0.1"
     coordinator._wifimodule = "wireless"
     coordinator.get_capabilities()
@@ -3401,6 +3405,7 @@ def test_capabilities_v7_wifiwave2():
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator.host = "10.0.0.1"
     coordinator._wifimodule = "wireless"
     coordinator.get_capabilities()
@@ -3426,6 +3431,7 @@ def test_capabilities_ups_and_gps():
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator.host = "10.0.0.1"
     coordinator._wifimodule = "wireless"
     coordinator.get_capabilities()
@@ -3441,6 +3447,7 @@ def test_capabilities_v0_unknown_skips_detection_and_logs(caplog):
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator.host = "10.0.0.1"
     coordinator._wifimodule = "wireless"
 
@@ -5218,6 +5225,7 @@ def test_readonly_capability_cascade_unblocked_end_to_end():
     coordinator.support_wireless = False
     coordinator.support_ups = False
     coordinator.support_gps = False
+    coordinator.support_lte = False
     coordinator._wifimodule = "wireless"
 
     # Order mirrors _async_update_hwinfo: resource parse, then capabilities.

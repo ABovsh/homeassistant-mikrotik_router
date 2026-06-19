@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.components.switch import (
     SwitchDeviceClass,
     SwitchEntityDescription,
@@ -70,6 +71,16 @@ DEVICE_ATTRIBUTES_CONTAINER = [
     "root-dir",
     "status",
     "comment",
+]
+
+DEVICE_ATTRIBUTES_LTE_SWITCH = [
+    "network-mode",
+    "allow-roaming",
+    "apn-profiles",
+    "running",
+    "current-operator",
+    "access-technology",
+    "registration-status",
 ]
 
 DEVICE_ATTRIBUTES_RAW = [
@@ -316,6 +327,25 @@ SENSOR_TYPES: tuple[MikrotikSwitchEntityDescription, ...] = (
         data_reference=".id",
         data_attributes_list=DEVICE_ATTRIBUTES_CONTAINER,
         func="MikrotikContainerSwitch",
+    ),
+    MikrotikSwitchEntityDescription(
+        key="lte_only",
+        name="LTE only",
+        icon_enabled="mdi:signal-4g",
+        icon_disabled="mdi:signal",
+        entity_category=EntityCategory.CONFIG,
+        ha_group="LTE",
+        ha_connection=DOMAIN,
+        ha_connection_value="LTE",
+        data_path="lte",
+        data_attribute="network-mode",
+        data_switch_path="/interface/lte",
+        data_switch_parameter="network-mode",
+        data_name="name",
+        data_uid="name",
+        data_reference="name",
+        data_attributes_list=DEVICE_ATTRIBUTES_LTE_SWITCH,
+        func="MikrotikLteOnlySwitch",
     ),
 )
 

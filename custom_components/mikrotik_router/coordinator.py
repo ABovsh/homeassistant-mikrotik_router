@@ -285,6 +285,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             "environment": {},
             "ups": {},
             "gps": {},
+            "lte": {},
             "netwatch": {},
             "raw": {},
             "container": {},
@@ -318,6 +319,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         self.support_ppp = False
         self.support_ups = False
         self.support_gps = False
+        self.support_lte = False
         self.support_container = False
         self._wifimodule = "wireless"
 
@@ -534,6 +536,8 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             if pkg in packages and packages[pkg]["enabled"]:
                 setattr(self, attr, True)
 
+        self._detect_lte_support()
+
     def _detect_capabilities_v6(self, packages: dict) -> None:
         """Detect wireless/PPP capabilities for RouterOS v6."""
         if "ppp" in packages:
@@ -574,6 +578,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if "wireless" in packages and packages["wireless"]["enabled"]:
             return False
         return (self.major_fw_version == 7 and self.minor_fw_version >= 13) or self.major_fw_version > 7
+
+    def _detect_lte_support(self) -> None:
+        """Probe /interface/lte to determine if any LTE interfaces exist."""
+        ifaces = self.api.query("/interface/lte")
+        self.support_lte = bool(ifaces)
 
     async def async_get_host_hass(self):
         """Get host data from HA entity registry"""
@@ -701,6 +710,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             (self.get_environment, self.option_sensor_environment),
             (self.get_ups, self.support_ups),
             (self.get_gps, self.support_gps),
+            (self.get_lte, self.support_lte),
             (
                 self.get_container,
                 self.support_container and self.option_sensor_container,
@@ -736,6 +746,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             "kid-control",
             "container",
             "environment",
+            "lte",
             "netwatch",
         }
     )
@@ -1857,6 +1868,112 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     {"name": "hid-self-test", "default": "unknown"},
                 ],
             )
+
+    # ---------------------------
+    #   _parse_earfcn
+    # ---------------------------
+    @staticmethod
+    def _parse_earfcn(raw: str) -> tuple[int | str, str, str]:
+        """Parse RouterOS earfcn string into (earfcn_int, band, bandwidth).
+
+        Example input: "1700 (band 3, bandwidth 20Mhz)"
+        Returns: (1700, "B3", "20Mhz")
+        On parse failure returns (raw, "unknown", "unknown").
+        """
+        match = re.match(
+            r"^\s*(\d+)\s*\(band\s+(\S+),\s*bandwidth\s+(\S+)\)",
+            raw,
+        )
+        if not match:
+            return raw, "unknown", "unknown"
+        earfcn_int = int(match.group(1))
+        band = f"B{match.group(2)}"
+        bandwidth = match.group(3)
+        return earfcn_int, band, bandwidth
+
+    # ---------------------------
+    #   get_lte
+    # ---------------------------
+    def get_lte(self) -> None:
+        """Get LTE interface data from Mikrotik (auto-discovers all LTE interfaces)."""
+        iface_source = self.api.query("/interface/lte")
+        if not iface_source:
+            self.ds["lte"] = {}
+            return
+
+        ifaces = parse_api(
+            data={},
+            source=iface_source,
+            key="name",
+            vals=[
+                {"name": ".id"},
+                {"name": "name"},
+                {"name": "mtu", "default": 0},
+                {"name": "apn-profiles", "default": "unknown"},
+                {"name": "allow-roaming", "type": "bool"},
+                {"name": "network-mode", "default": "unknown"},
+                {"name": "band", "default": "unknown"},
+                {
+                    "name": "enabled",
+                    "source": "disabled",
+                    "type": "bool",
+                    "reverse": True,
+                },
+                {"name": "running", "type": "bool"},
+            ],
+        )
+
+        for iface_name, iface in ifaces.items():
+            iface_id = iface.get(".id")
+            if not iface_id:
+                continue
+            monitor = self.api.query(
+                "/interface/lte",
+                command="monitor",
+                args={".id": iface_id, "once": True},
+            )
+            if monitor:
+                monitor_data = parse_api(
+                    data={},
+                    source=monitor,
+                    vals=[
+                        {"name": "status", "default": "unknown"},
+                        {"name": "pin-status", "default": "unknown"},
+                        {"name": "registration-status", "default": "unknown"},
+                        {"name": "manufacturer", "default": "unknown"},
+                        {"name": "model", "default": "unknown"},
+                        {"name": "revision", "default": "unknown"},
+                        {"name": "current-operator", "default": "unknown"},
+                        {"name": "lac", "default": 0},
+                        {"name": "current-cellid", "default": 0},
+                        {"name": "enb-id", "default": 0},
+                        {"name": "sector-id", "default": 0},
+                        {"name": "phy-cellid", "default": 0},
+                        {"name": "access-technology", "default": "unknown"},
+                        {"name": "session-uptime", "default": "unknown"},
+                        {"name": "earfcn", "default": "unknown"},
+                        {"name": "cqi", "default": 0},
+                        {"name": "rsrp", "default": 0},
+                        {"name": "rsrq", "default": 0.0},
+                        {"name": "sinr", "default": 0},
+                        {"name": "rssi", "default": 0},
+                        {"name": "ca-band", "default": "unknown"},
+                        {"name": "functionality", "default": "unknown"},
+                    ],
+                )
+                iface.update(monitor_data)
+
+            earfcn_raw = iface.get("earfcn", "unknown")
+            if isinstance(earfcn_raw, str) and earfcn_raw != "unknown":
+                earfcn_val, band_val, bw_val = self._parse_earfcn(earfcn_raw)
+                iface["earfcn"] = earfcn_val
+                iface["lte-band"] = band_val
+                iface["lte-bandwidth"] = bw_val
+            else:
+                iface.setdefault("lte-band", "unknown")
+                iface.setdefault("lte-bandwidth", "unknown")
+
+        self.ds["lte"] = ifaces
 
     # ---------------------------
     #   get_gps

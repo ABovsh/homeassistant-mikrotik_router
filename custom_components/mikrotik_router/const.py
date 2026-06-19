@@ -99,4 +99,8 @@ TO_REDACT = {
     "caller-id",
     "target",
     "ssid",
+    "imei",
+    "imsi",
+    "iccid",
+    "revision",
 }

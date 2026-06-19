@@ -48,6 +48,7 @@ async def async_setup_entry(
         "MikrotikRawSwitch": MikrotikRawSwitch,
         "MikrotikContainerSwitch": MikrotikContainerSwitch,
         "MikrotikKidcontrolPauseSwitch": MikrotikKidcontrolPauseSwitch,
+        "MikrotikLteOnlySwitch": MikrotikLteOnlySwitch,
     }
     await async_add_entities(hass, config_entry, dispatcher)
 
@@ -313,4 +314,48 @@ class MikrotikContainerSwitch(MikrotikSwitch):
 
         path = self.entity_description.data_switch_path
         await self.hass.async_add_executor_job(self.coordinator.execute, path, "stop", ".id", self._data[".id"])
+        await self.coordinator.async_refresh()
+
+
+# ---------------------------
+#   MikrotikLteOnlySwitch
+# ---------------------------
+_LTE_MODE_ONLY = "lte"
+_LTE_MODE_ALL = "gsm,3g,lte"
+
+
+class MikrotikLteOnlySwitch(MikrotikSwitch):
+    """Switch that restricts LTE interface to LTE-only (ON) or all modes (OFF)."""
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when network-mode is lte-only."""
+        return self._data.get("network-mode") == _LTE_MODE_ONLY
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Restrict to LTE-only mode."""
+        self._require_write_access()
+
+        iface_id = self._data.get(".id")
+        if not iface_id:
+            _LOGGER.error("LTE interface .id missing for %s", self.entity_id)
+            return
+        path = self.entity_description.data_switch_path
+        await self.hass.async_add_executor_job(
+            self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ONLY
+        )
+        await self.coordinator.async_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Restore multi-mode (gsm,3g,lte)."""
+        self._require_write_access()
+
+        iface_id = self._data.get(".id")
+        if not iface_id:
+            _LOGGER.error("LTE interface .id missing for %s", self.entity_id)
+            return
+        path = self.entity_description.data_switch_path
+        await self.hass.async_add_executor_job(
+            self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ALL
+        )
         await self.coordinator.async_refresh()
