@@ -521,3 +521,22 @@ class TestQueryExtracted:
 
         result = api.query("/interface/ethernet", command="monitor", args={".id": "*1", "once": True})
         assert result == [{"status": "running"}]
+
+    def test_optional_query_command_error_does_not_disconnect(self):
+        api = make_api()
+        api._connected = True
+        api._connection = MagicMock()
+        mock_path = MagicMock()
+        mock_path.__bool__ = MagicMock(return_value=True)
+        mock_path.side_effect = Exception("unknown parameter .id")
+        api._connection.path.return_value = mock_path
+
+        result = api.query(
+            "/interface/lte",
+            command="monitor",
+            args={".id": "lte1", "once": True},
+            disconnect_on_error=False,
+        )
+
+        assert result is None
+        assert api._connected is True

@@ -148,7 +148,7 @@ class MockMikrotikAPI:
     def disconnect(self):
         pass
 
-    def query(self, path, command=None, args=None):
+    def query(self, path, command=None, args=None, **kwargs):
         self.calls.append((path, command, args))
         key = (path, command) if command else path
         return self.responses.get(key, [])

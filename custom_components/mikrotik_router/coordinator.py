@@ -884,6 +884,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 "/interface/ethernet",
                 command="monitor",
                 args={".id": vals[".id"], "once": True},
+                disconnect_on_error=False,
             ),
             key_search="name",
             vals=monitor_vals,
@@ -896,6 +897,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                     "/interface/ethernet/poe",
                     command="monitor",
                     args={".id": vals[".id"], "once": True},
+                    disconnect_on_error=False,
                 ),
                 key_search="name",
                 vals=self._POE_MONITOR_VALS,
@@ -1959,6 +1961,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
                 "/interface/lte",
                 command="monitor",
                 args={".id": iface_name, "once": True},
+                disconnect_on_error=False,
             )
             if monitor:
                 monitor_data = parse_api(

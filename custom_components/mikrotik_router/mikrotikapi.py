@@ -158,6 +158,7 @@ class MikrotikAPI:
         command: str | None = None,
         args: dict | None = None,
         return_list: bool = True,
+        disconnect_on_error: bool = True,
     ) -> list | None:
         """Retrieve data from Mikrotik API."""
         if path == "/system/health" and self.disable_health:
@@ -174,11 +175,14 @@ class MikrotikAPI:
                 _LOGGER.debug("API query: %s", path)
                 response = self._connection.path(path)
             except Exception as e:
-                self.disconnect("path", e)
+                if disconnect_on_error:
+                    self.disconnect("path", e)
+                else:
+                    _LOGGER.debug("Mikrotik %s optional query path %s failed: %s", self._host, path, e)
                 return None
 
             if command:
-                return self._query_command(response, path, command, args)
+                return self._query_command(response, path, command, args, disconnect_on_error)
             if return_list:
                 return self._query_list(response, path)
 
@@ -195,13 +199,29 @@ class MikrotikAPI:
             self.disconnect(f"building list for path {path}", e)
             return None
 
-    def _query_command(self, response, path: str, command: str, args: dict) -> list | None:
+    def _query_command(
+        self,
+        response,
+        path: str,
+        command: str,
+        args: dict,
+        disconnect_on_error: bool = True,
+    ) -> list | None:
         """Execute command on API path. Must be called inside self.lock."""
         _LOGGER.debug("API query: %s, %s, %s", path, command, args)
         try:
             return list(response(command, **args)) or None
         except Exception as e:
-            self.disconnect("path", e)
+            if disconnect_on_error:
+                self.disconnect("path", e)
+            else:
+                _LOGGER.debug(
+                    "Mikrotik %s optional query command %s %s failed: %s",
+                    self._host,
+                    path,
+                    command,
+                    e,
+                )
             return None
 
     @staticmethod
