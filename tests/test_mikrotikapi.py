@@ -124,6 +124,28 @@ class TestDisconnect:
         api.disconnect()
         assert api.connection_error_reported is True
 
+    def test_closes_connection_to_free_router_session(self):
+        """disconnect() must close the librouteros socket, not just drop the
+        reference — otherwise every reconnect leaks a RouterOS API session
+        until the router refuses new connections ("Connection reset by peer")."""
+        api = make_api()
+        api._connected = True
+        conn = MagicMock()
+        api._connection = conn
+        api.disconnect("test", "error msg")
+        conn.close.assert_called_once()
+        assert api._connection is None
+
+    def test_close_failure_is_swallowed(self):
+        """A failing close() must not raise out of disconnect()."""
+        api = make_api()
+        api._connected = True
+        conn = MagicMock()
+        conn.close.side_effect = OSError("already gone")
+        api._connection = conn
+        api.disconnect("test", "error msg")  # must not raise
+        assert api._connection is None
+
 
 # --- connection_check ---
 

@@ -84,6 +84,16 @@ class MikrotikAPI:
                 _LOGGER.error("Mikrotik %s error while %s : %s", self._host, location, error)
             self.connection_error_reported = True
 
+        # Close the socket so the router frees the API session. Dropping the
+        # reference alone leaks one RouterOS session per reconnect, which on a
+        # flaky link eventually exhausts the API session limit and makes the
+        # router reset new connections ("Connection reset by peer").
+        if self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception as e:  # noqa: BLE001 - best-effort cleanup
+                _LOGGER.debug("Mikrotik %s error closing connection: %s", self._host, e)
+
         self._reconnected = False
         self._connected = False
         self._connection = None
