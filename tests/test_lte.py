@@ -112,6 +112,27 @@ class TestParseEarfcn:
         assert bw == "20Mhz"
 
 
+class TestDeriveRssi:
+    """Tests for the wideband RSSI fallback derivation."""
+
+    def test_20mhz_known_relation(self):
+        # RSSI = RSRP - RSRQ + 10*log10(100) = -106 + 9.5 + 20 = -76.5 -> -76 (round half to even)
+        assert MikrotikCoordinator._derive_rssi(-106, -9.5, "20Mhz") == -76
+
+    def test_5mhz_smaller_offset(self):
+        # 10*log10(25) ~= 13.98 -> RSSI = -100 + 8 + 13.98 ~= -78
+        assert MikrotikCoordinator._derive_rssi(-100, -8, "5Mhz") == -78
+
+    def test_unknown_bandwidth_returns_none(self):
+        assert MikrotikCoordinator._derive_rssi(-100, -8, "unknown") is None
+
+    def test_zero_rsrp_returns_none(self):
+        assert MikrotikCoordinator._derive_rssi(0, -8, "20Mhz") is None
+
+    def test_non_numeric_inputs_return_none(self):
+        assert MikrotikCoordinator._derive_rssi("n/a", -8, "20Mhz") is None
+
+
 # ---------------------------------------------------------------------------
 # Group L2: get_lte — field mapping with recorded sample
 # ---------------------------------------------------------------------------
@@ -158,17 +179,18 @@ class TestGetLte:
         assert data["lte-band"] == "B3"
         assert data["lte-bandwidth"] == "20Mhz"
 
-    def test_missing_rssi_defaults_to_zero(self):
-        """rssi is optional; absence must not crash and must default to 0."""
+    def test_missing_rssi_is_derived(self):
+        """When the modem omits rssi, it is derived from rsrp/rsrq/bandwidth."""
         monitor_no_rssi = [row for row in SAMPLE_MONITOR]
-        # rssi is already absent from SAMPLE_MONITOR — verify graceful default
+        # rssi is absent from SAMPLE_MONITOR — verify it is computed, not left 0
         coordinator = make_lte_coordinator(
             iface_source=SAMPLE_IFACE,
             monitor_source=monitor_no_rssi,
         )
         coordinator.get_lte()
         data = coordinator.ds["lte"]["lte1"]
-        assert data.get("rssi") == 0
+        assert isinstance(data.get("rssi"), int)
+        assert data["rssi"] < 0
 
     def test_missing_ca_band_defaults_to_unknown(self):
         coordinator = make_lte_coordinator(

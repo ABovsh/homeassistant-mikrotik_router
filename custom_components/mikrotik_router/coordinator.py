@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
@@ -1891,6 +1892,33 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         bandwidth = match.group(3)
         return earfcn_int, band, bandwidth
 
+    # Map LTE channel bandwidth (MHz) to resource-block count.
+    _LTE_RB_BY_MHZ = {"1.4": 6, "3": 15, "5": 25, "10": 50, "15": 75, "20": 100}
+
+    @staticmethod
+    def _derive_rssi(rsrp, rsrq, bandwidth) -> int | None:
+        """Approximate wideband RSSI when the modem does not report it.
+
+        Standard relation: RSRQ = 10*log10(N) + RSRP - RSSI, therefore
+        RSSI = RSRP - RSRQ + 10*log10(N), with N = resource-block count for the
+        channel bandwidth. Used only as a fallback (e.g. R11e-LTE omits rssi).
+        Returns None when inputs are unusable.
+        """
+        bw_match = re.match(r"^\s*([\d.]+)", str(bandwidth))
+        if not bw_match:
+            return None
+        rb = MikrotikCoordinator._LTE_RB_BY_MHZ.get(bw_match.group(1))
+        if not rb:
+            return None
+        try:
+            rsrp_f = float(rsrp)
+            rsrq_f = float(rsrq)
+        except (TypeError, ValueError):
+            return None
+        if rsrp_f == 0:
+            return None
+        return round(rsrp_f - rsrq_f + 10 * math.log10(rb))
+
     # ---------------------------
     #   get_lte
     # ---------------------------
@@ -1972,6 +2000,14 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             else:
                 iface.setdefault("lte-band", "unknown")
                 iface.setdefault("lte-bandwidth", "unknown")
+
+            # Some modems (e.g. R11e-LTE) do not report rssi; derive it.
+            if not iface.get("rssi"):
+                derived = self._derive_rssi(
+                    iface.get("rsrp"), iface.get("rsrq"), iface.get("lte-bandwidth")
+                )
+                if derived is not None:
+                    iface["rssi"] = derived
 
         self.ds["lte"] = ifaces
 
