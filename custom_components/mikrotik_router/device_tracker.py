@@ -7,7 +7,12 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, Callable
 
-from homeassistant.components.device_tracker.config_entry import ScannerEntity
+try:
+    # HA 2025.x+ exposes ScannerEntity at the component root; the
+    # config_entry alias is deprecated (removed in HA Core 2027.6).
+    from homeassistant.components.device_tracker import ScannerEntity
+except ImportError:  # pragma: no cover - fallback for HA < component-root export
+    from homeassistant.components.device_tracker.config_entry import ScannerEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import STATE_NOT_HOME
 from homeassistant.helpers import entity_platform as ep
