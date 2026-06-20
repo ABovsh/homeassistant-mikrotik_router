@@ -341,9 +341,7 @@ class MikrotikLteOnlySwitch(MikrotikSwitch):
             _LOGGER.error("LTE interface .id missing for %s", self.entity_id)
             return
         path = self.entity_description.data_switch_path
-        await self.hass.async_add_executor_job(
-            self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ONLY
-        )
+        await self.hass.async_add_executor_job(self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ONLY)
         await self.coordinator.async_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -355,7 +353,5 @@ class MikrotikLteOnlySwitch(MikrotikSwitch):
             _LOGGER.error("LTE interface .id missing for %s", self.entity_id)
             return
         path = self.entity_description.data_switch_path
-        await self.hass.async_add_executor_job(
-            self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ALL
-        )
+        await self.hass.async_add_executor_job(self.coordinator.set_value, path, ".id", iface_id, "network-mode", _LTE_MODE_ALL)
         await self.coordinator.async_refresh()

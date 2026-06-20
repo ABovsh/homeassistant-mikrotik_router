@@ -27,8 +27,15 @@ DEFAULT_DEVICE_NAME = "Mikrotik"
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
 
+# Refresh interval (seconds) between RouterOS polls. This is the single knob for
+# how often every sensor/switch updates. Change it per-device in the integration
+# Options → "Update interval (seconds)" field; DEFAULT_SCAN_INTERVAL is only the
+# value pre-filled for a fresh setup. MIN_SCAN_INTERVAL guards the lower bound
+# (used as a divisor in throughput math — must never reach 0).
 CONF_SCAN_INTERVAL = "scan_interval"
 DEFAULT_SCAN_INTERVAL = 30
+MIN_SCAN_INTERVAL = 1
+MAX_SCAN_INTERVAL = 3600
 CONF_TRACK_IFACE_CLIENTS = "track_iface_clients"
 DEFAULT_TRACK_IFACE_CLIENTS = True
 CONF_TRACK_HOSTS = "track_network_hosts"

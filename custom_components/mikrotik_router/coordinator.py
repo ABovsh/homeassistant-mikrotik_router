@@ -40,6 +40,7 @@ from .const import (
     DEFAULT_TRACK_HOSTS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
     CONF_SENSOR_PORT_TRAFFIC,
     DEFAULT_SENSOR_PORT_TRAFFIC,
     CONF_SENSOR_CLIENT_TRAFFIC,
@@ -476,6 +477,13 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
     def option_scan_interval(self):
         """Config entry option scan interval."""
         scan_interval = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        # Clamp to >= MIN_SCAN_INTERVAL: this value feeds the HA update interval
+        # AND is used as a divisor in throughput math, so a stored 0 (legacy or
+        # hand-edited entry) would busy-poll and raise ZeroDivisionError.
+        try:
+            scan_interval = max(MIN_SCAN_INTERVAL, int(scan_interval))
+        except (TypeError, ValueError):
+            scan_interval = DEFAULT_SCAN_INTERVAL
         return timedelta(seconds=scan_interval)
 
     # ---------------------------
@@ -2026,11 +2034,18 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
 
             # Some modems (e.g. R11e-LTE) do not report rssi; derive it.
             if not iface.get("rssi"):
-                derived = self._derive_rssi(
-                    iface.get("rsrp"), iface.get("rsrq"), iface.get("lte-bandwidth")
-                )
+                derived = self._derive_rssi(iface.get("rsrp"), iface.get("rsrq"), iface.get("lte-bandwidth"))
                 if derived is not None:
                     iface["rssi"] = derived
+
+            # rsrp/rsrq/rssi of 0 mean "field absent" (the modem omits them when
+            # not registered) — 0 dBm/dB is physically impossible. Expose None so
+            # the sensor reads "unknown" on a dropped link instead of a fake 0
+            # that pegs statistics and signal-quality dashboards to max signal.
+            # (sinr/cqi are left untouched: 0 dB SINR is a legitimate reading.)
+            for _signal_field in ("rsrp", "rsrq", "rssi"):
+                if not iface.get(_signal_field):
+                    iface[_signal_field] = None
 
         self.ds["lte"] = ifaces
 

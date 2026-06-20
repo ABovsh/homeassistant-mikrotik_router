@@ -1,9 +1,25 @@
 __pycache__/
+*.pyc
 .venv/
+venv/
 output/
 *.zip
 coverage.xml
 .coverage
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.DS_Store
+
+# Knowledge-graph artefacts (graphify) — regenerated locally, never published.
+graphify-out/
+
+# Internal/private dev artefacts — audit findings, /simplify assessments, and
+# hardening/refactor/release plans. Never publish to GitHub.
+AUDIT_FINDINGS*.md
+*-assessment-*.md
+*_PLAN.md
+*.local.md
 
 # Local-only investigation artefacts: HA logs, diagnostics dumps, live-deploy
 # captures. Treat as sensitive (may contain tokens, MACs, internal hostnames,

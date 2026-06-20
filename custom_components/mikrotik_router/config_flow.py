@@ -21,6 +21,11 @@ from homeassistant.const import (
     STATE_HOME,
 )
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .const import (
     DOMAIN,
@@ -28,6 +33,8 @@ from .const import (
     DEFAULT_TRACK_IFACE_CLIENTS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
+    MAX_SCAN_INTERVAL,
     CONF_TRACK_HOSTS,
     DEFAULT_TRACK_HOSTS,
     CONF_SENSOR_PORT_TRACKER,
@@ -223,7 +230,15 @@ class MikrotikControllerOptionsFlowHandler(OptionsFlowWithConfigEntry):
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
                         default=self._options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                    ): int,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_SCAN_INTERVAL,
+                            max=MAX_SCAN_INTERVAL,
+                            step=1,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="seconds",
+                        )
+                    ),
                     vol.Optional(
                         CONF_TRACK_IFACE_CLIENTS,
                         default=self._options.get(CONF_TRACK_IFACE_CLIENTS, DEFAULT_TRACK_IFACE_CLIENTS),
