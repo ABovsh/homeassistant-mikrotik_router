@@ -101,6 +101,7 @@ TO_REDACT = {
     "to-addresses",
     "src-address",
     "dst-address",
+    "host",
     "username",
     "password",
     "caller-id",

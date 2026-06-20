@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import ssl
-from time import time
+from time import monotonic, time
 from threading import Lock
 
 from .const import (
@@ -66,7 +66,10 @@ class MikrotikAPI:
     def connection_check(self) -> bool:
         """Check if mikrotik is connected."""
         if not self._connected or not self._connection:
-            if self._connection_epoch > time() - self._connection_retry_sec:
+            # monotonic(), not wall-clock: a backward NTP/host clock correction
+            # must not stretch the reconnect throttle and keep the self-heal path
+            # from ever re-running connect().
+            if self._connection_epoch > monotonic() - self._connection_retry_sec:
                 return False
             if not self.connect():
                 return False
@@ -103,7 +106,7 @@ class MikrotikAPI:
         """Connect to Mikrotik device."""
         self.error = ""
         self._connected = False
-        self._connection_epoch = time()
+        self._connection_epoch = monotonic()
 
         kwargs = {
             "encoding": self._encoding,

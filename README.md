@@ -21,6 +21,60 @@ Monitor and control your entire MikroTik network from Home Assistant. This HACS 
 
 ---
 
+## Why this fork
+
+This repository is a fork of [`jnctech/homeassistant-mikrotik_router`](https://github.com/jnctech/homeassistant-mikrotik_router) (itself a fork of `tomaae`). It tracks upstream for all the existing router/switch/PoE/firewall functionality and **adds first-class LTE modem monitoring** — the one capability the upstream integration leaves on its "planned" list.
+
+It exists because a MikroTik outdoor LTE CPE (e.g. an **LHG R / LHG LTE18** with an **R11e-LTE** modem) is a common backup-WAN at sites with no fixed line, and on a weak rural link you need to *see* the radio, not just whether the interface is up. Upstream surfaces none of the LTE signal metrics; this fork does.
+
+**What this fork adds on top of upstream:**
+
+- **LTE signal sensors**, auto-discovered for every LTE interface (never hardcodes `lte1`):
+  RSRP, RSRQ, SINR, CQI and RSSI, plus registration status, access technology, operator,
+  band, bandwidth and session uptime.
+- **Derived RSSI** — when the modem omits RSSI (the R11e-LTE does), it is computed from
+  `RSRP − RSRQ + 10·log10(N_RB)` using the active bandwidth, so the sensor is populated on
+  modems that only report RSRP/RSRQ.
+- **LTE-only switch** — locks an interface to `network-mode=lte` (vs `gsm,3g,lte`) so the modem
+  can't drop to a slower technology on a marginal link.
+- **Signal values read *Unknown*, not `0`,** when the modem stops reporting them on a dropped or
+  unregistered link — so history graphs don't draw a fake full-strength reading while the link is down.
+- **Self-healing reconnect** — after the router drops the API session, the coordinator reconnects on
+  its next poll instead of leaving every entity *Unavailable* until a manual reload.
+- **SIM privacy** — IMEI / IMSI / ICCID are redacted from diagnostics.
+- **UI-tunable poll rate** — the update interval is a 1–3600 s number field in the integration Options.
+
+Everything from upstream (interfaces, PoE, firewall, device tracking, DHCP, containers, firmware
+updates, …) is unchanged and continues to track the jnctech line. If you don't use an LTE modem, this
+fork behaves exactly like upstream.
+
+> **Hardware tested:** MikroTik **LHG R (RBLHGR)** with the **R11e-LTE (Cat.4)** modem on RouterOS 7.x.
+> The LTE code is interface-discovery based and should work on any RouterOS device exposing
+> `/interface/lte`, but the derived-RSSI path is validated specifically against the R11e.
+
+---
+
+## What's New — LTE signal monitoring (v2.4.x)
+
+The v2.4 line adds the LTE feature set described in **[Why this fork](#why-this-fork)** above and hardens it:
+
+- **v2.4.8** — reliability/robustness pass: non-LTE routers are never marked unavailable by the LTE
+  capability probe; LTE sensors read *Unknown* (not a fake value) in more no-signal edge cases; firmware
+  updates abort with an error instead of silently proceeding on a failed backup/install; the router
+  address is redacted from diagnostics; API sessions are closed on reload/unload. See the CHANGELOG.
+- **v2.4.7** — LTE RSRP/RSRQ/RSSI read *Unknown* instead of a misleading `0` when the modem stops
+  reporting them; the update interval can no longer be set to `0` s and is now a proper 1–3600 s
+  number field in the Options UI.
+- **v2.4.6** — the integration recovers on its own after the router drops the API connection
+  (entities no longer stay *Unavailable* until a reload/restart).
+- **v2.4.5** — the router API session is closed on disconnect, so reconnects no longer leak sessions
+  (which on a flaky link eventually caused repeated *Connection reset by peer* errors).
+- **v2.4.4** — internal HA import updated so device-tracker entities keep working on newer HA releases.
+- **v2.4.1** — initial LTE signal/band sensors, derived RSSI for the R11e, the LTE-only switch, and
+  IMEI/IMSI/ICCID redaction in diagnostics.
+
+---
+
 ## What's New — v2.3.19
 
 Stable release rolling up the read-only and quality-scale fixes from the dev cycle since v2.3.18. Validated live against a multi-device RouterOS deployment before tagging.

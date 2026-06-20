@@ -304,7 +304,13 @@ async def async_reload_entry(hass: HomeAssistant, config_entry: MikrotikConfigEn
 async def async_unload_entry(hass: HomeAssistant, config_entry: MikrotikConfigEntry) -> bool:
     """Unload a config entry."""
 
+    runtime_data = config_entry.runtime_data
     if unload_ok := await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS):
+        # Close the RouterOS API sockets so the router frees the sessions. Dropping
+        # runtime_data alone leaks one API session per reload/unload until GC, which
+        # on a session-capped router eventually causes "Connection reset by peer".
+        for coordinator in (runtime_data.data_coordinator, runtime_data.tracker_coordinator):
+            await hass.async_add_executor_job(coordinator.api.disconnect, "unload")
         # runtime_data is dropped by Home Assistant automatically on unload.
         # Only remove the shared services once the last entry is gone.
         other_entries_loaded = any(entry.entry_id != config_entry.entry_id for entry in hass.config_entries.async_loaded_entries(DOMAIN))

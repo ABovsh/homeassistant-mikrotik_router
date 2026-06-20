@@ -58,7 +58,10 @@ class MikrotikSensor(MikrotikEntity, SensorEntity):
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:
         """Return the value reported by the sensor."""
-        return self._data[self.entity_description.data_attribute]
+        # .get, not []: a partial poll (e.g. an unregistered LTE modem returns an
+        # interface row but no monitor payload) can omit an attribute. Missing →
+        # None → the sensor reads "unknown" instead of raising KeyError every cycle.
+        return self._data.get(self.entity_description.data_attribute)
 
     @property
     def native_unit_of_measurement(self) -> str | None:

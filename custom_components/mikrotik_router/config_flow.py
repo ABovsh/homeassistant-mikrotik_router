@@ -155,9 +155,14 @@ class MikrotikControllerConfigFlow(ConfigFlow, domain=DOMAIN):
             use_ssl=data[CONF_SSL],
             ssl_verify=data[CONF_VERIFY_SSL],
         )
-        if not api.connect():
-            return api.error or "cannot_connect"
-        return None
+        try:
+            if not api.connect():
+                return api.error or "cannot_connect"
+            return None
+        finally:
+            # Close the validation session so it doesn't linger on the router until
+            # it times out — important on devices with a low API session limit.
+            api.disconnect("config_flow_validation")
 
     async def async_step_reauth(self, entry_data):
         """Handle re-auth triggered by ConfigEntryAuthFailed (invalid credentials)."""

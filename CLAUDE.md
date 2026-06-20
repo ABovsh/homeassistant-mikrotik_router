@@ -2,7 +2,7 @@
 
 ## Project
 
-- **Domain:** `mikrotik_router` | **Version:** tracks `manifest.json` (currently 2.4.4) | **IoT:** `local_polling`
+- **Domain:** `mikrotik_router` | **Version:** tracks `manifest.json` (currently 2.4.8) | **IoT:** `local_polling`
 - **HA Min:** 2024.3.0 (`hacs.json`) | **Fork of:** `jnctech/homeassistant-mikrotik_router`
 - **Repo:** `github.com/ABovsh/homeassistant-mikrotik_router` (Anton's **private fork**, public on GitHub)
 - **Deps:** `librouteros>=3.4.1,<4.0`, `mac-vendor-lookup>=0.1.12`

@@ -41,6 +41,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
+    MAX_SCAN_INTERVAL,
     CONF_SENSOR_PORT_TRAFFIC,
     DEFAULT_SENSOR_PORT_TRAFFIC,
     CONF_SENSOR_CLIENT_TRAFFIC,
@@ -99,6 +100,10 @@ _PPP_NOT_CONNECTED = "not connected"
 
 def _parse_uptime_to_seconds(uptime_str: str) -> int:
     """Parse MikroTik uptime string (e.g. '1w2d3h4m5s') to total seconds."""
+    # Strip any milliseconds token first (RouterOS can report sub-second uptime
+    # right after a reboot). Otherwise the 'm'/'s' unit regexes below misread the
+    # digits of e.g. '500ms' as 500 minutes.
+    uptime_str = re.sub(r"\d+ms", "", uptime_str)
     total = 0
     for unit, multiplier in _UPTIME_UNITS:
         match = re.split(rf"(\d+){unit}", uptime_str)
@@ -477,12 +482,12 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
     def option_scan_interval(self):
         """Config entry option scan interval."""
         scan_interval = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-        # Clamp to >= MIN_SCAN_INTERVAL: this value feeds the HA update interval
+        # Clamp to [MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL]: this value feeds the HA update interval
         # AND is used as a divisor in throughput math, so a stored 0 (legacy or
         # hand-edited entry) would busy-poll and raise ZeroDivisionError.
         try:
-            scan_interval = max(MIN_SCAN_INTERVAL, int(scan_interval))
-        except (TypeError, ValueError):
+            scan_interval = min(MAX_SCAN_INTERVAL, max(MIN_SCAN_INTERVAL, int(scan_interval)))
+        except (TypeError, ValueError, OverflowError):
             scan_interval = DEFAULT_SCAN_INTERVAL
         return timedelta(seconds=scan_interval)
 
@@ -590,7 +595,11 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
 
     def _detect_lte_support(self) -> None:
         """Probe /interface/lte to determine if any LTE interfaces exist."""
-        ifaces = self.api.query("/interface/lte")
+        # LTE is optional hardware. Probe without disconnect_on_error: on a router
+        # whose RouterOS build lacks the /interface/lte path, a hard-failing query
+        # would call disconnect() and take an otherwise-healthy non-LTE router
+        # offline. Absent/empty path simply means "no LTE".
+        ifaces = self.api.query("/interface/lte", disconnect_on_error=False)
         self.support_lte = bool(ifaces)
 
     async def async_get_host_hass(self):
@@ -933,7 +942,9 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
 
     def _calculate_interface_traffic(self) -> None:
         """Calculate per-interface TX/RX throughput from byte counters."""
-        interval = self.option_scan_interval.seconds
+        # total_seconds(), not .seconds: timedelta.seconds drops whole days, so a
+        # multi-day interval would wrap to 0 and divide-by-zero below.
+        interval = self.option_scan_interval.total_seconds()
         for uid, vals in self.ds["interface"].items():
             iface = self.ds["interface"][uid]
             for direction in ("tx", "rx"):
@@ -1943,9 +1954,14 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         try:
             rsrp_f = float(rsrp)
             rsrq_f = float(rsrq)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
-        if rsrp_f == 0:
+        # rsrp AND rsrq are required inputs; both are 0 only when the modem omits
+        # them (0 dBm/dB is physically impossible), and a non-finite value is junk.
+        # Deriving from a 0/NaN/inf input would emit a fake full-strength RSSI.
+        if not math.isfinite(rsrp_f) or not math.isfinite(rsrq_f):
+            return None
+        if rsrp_f == 0 or rsrq_f == 0:
             return None
         return round(rsrp_f - rsrq_f + 10 * math.log10(rb))
 
@@ -2043,8 +2059,15 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             # the sensor reads "unknown" on a dropped link instead of a fake 0
             # that pegs statistics and signal-quality dashboards to max signal.
             # (sinr/cqi are left untouched: 0 dB SINR is a legitimate reading.)
+            # Compare numerically: RouterOS reports these as strings, so a literal
+            # "0"/"0.0" (or junk) must also normalise to None, not slip through as
+            # a truthy string that pegs the sensor to a fake reading.
             for _signal_field in ("rsrp", "rsrq", "rssi"):
-                if not iface.get(_signal_field):
+                _v = iface.get(_signal_field)
+                try:
+                    if _v is None or float(_v) == 0:
+                        iface[_signal_field] = None
+                except (TypeError, ValueError, OverflowError):
                     iface[_signal_field] = None
 
         self.ds["lte"] = ifaces

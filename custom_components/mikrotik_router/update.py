@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -28,6 +29,11 @@ _LOGGER = getLogger(__name__)
 # so concurrent installs can't be issued to the router at once.
 PARALLEL_UPDATES = 1
 DEVICE_UPDATE = "device_update"
+
+# Safety cap on synthesised changelog fetches. A wide installed→latest gap would
+# otherwise enumerate hundreds of (mostly non-existent) patch versions and fire
+# them all at the MikroTik CDN at once.
+MAX_CHANGELOG_VERSIONS = 60
 
 
 # ---------------------------
@@ -87,9 +93,15 @@ class MikrotikRouterOSUpdate(MikrotikEntity, UpdateEntity):
     async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
         if backup:
-            await self.hass.async_add_executor_job(self.coordinator.execute, "/system/backup", "save", None, None)
+            backup_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system/backup", "save", None, None)
+            if not backup_ok:
+                # Never proceed into the (rebooting) install when the requested
+                # pre-update backup did not succeed.
+                raise HomeAssistantError("MikroTik backup before update failed; install aborted")
 
-        await self.hass.async_add_executor_job(self.coordinator.execute, "/system/package/update", "install", None, None)
+        install_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system/package/update", "install", None, None)
+        if not install_ok:
+            raise HomeAssistantError("MikroTik RouterOS update install command failed")
 
     async def async_release_notes(self) -> str:
         """Return the release notes."""
@@ -157,7 +169,10 @@ class MikrotikRouterBoardFWUpdate(MikrotikEntity, UpdateEntity):
 
     async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
-        await self.hass.async_add_executor_job(self.coordinator.execute, "/system/routerboard", "upgrade", None, None)
+        upgrade_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system/routerboard", "upgrade", None, None)
+        if not upgrade_ok:
+            # Don't reboot the router for an upgrade that wasn't staged.
+            raise HomeAssistantError("MikroTik RouterBOARD firmware upgrade command failed; not rebooting")
         await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
 
 
@@ -184,6 +199,10 @@ def generate_version_list(start_version: str, end_version: str) -> list:
     while current >= start:
         versions.append(str(current))
         if current == start:
+            break
+        if len(versions) >= MAX_CHANGELOG_VERSIONS:
+            # Stop synthesising patch versions once the cap is hit; a gap this wide
+            # would otherwise fire hundreds of mostly-404 requests at the CDN.
             break
         current = decrement_version(current, start)
 

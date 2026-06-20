@@ -327,12 +327,15 @@ async def test_unload_entry_removes_services_when_last_entry():
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
     hass.config_entries.async_loaded_entries = MagicMock(return_value=[])  # no others
     hass.services.async_remove = MagicMock()
+    hass.async_add_executor_job = AsyncMock()
 
     result = await async_unload_entry(hass, config_entry)
 
     assert result is True
     hass.services.async_remove.assert_any_call(DOMAIN, SERVICE_CLEANUP_ENTITIES)
     hass.services.async_remove.assert_any_call(DOMAIN, SERVICE_CLEANUP_STALE_HOSTS)
+    # Both coordinators' API sockets are closed on unload so the router frees the sessions.
+    assert hass.async_add_executor_job.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -347,6 +350,7 @@ async def test_unload_entry_keeps_services_if_other_entries_remain():
     # filters it out by entry_id, leaving entry_2 -> services stay registered.
     hass.config_entries.async_loaded_entries = MagicMock(return_value=[config_entry, other_entry])
     hass.services.async_remove = MagicMock()
+    hass.async_add_executor_job = AsyncMock()
 
     result = await async_unload_entry(hass, config_entry)
 

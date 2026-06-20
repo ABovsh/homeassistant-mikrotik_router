@@ -4,6 +4,37 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.4.8
+
+### 🐛 Fixed
+- Routers **without** an LTE modem are no longer at risk of being marked
+  *Unavailable* by the LTE capability check on RouterOS builds that don't expose
+  the LTE menu.
+- LTE signal sensors now read *Unknown* (instead of a misleading value) in more
+  cases where the modem reports no real signal — a literal `0`, or quality
+  metrics omitted while the modem is searching/unregistered.
+- LTE sensors no longer error out when the modem returns an interface but no
+  monitor data (searching/unregistered); they read *Unknown* until it registers.
+- **Firmware update** now stops and reports an error if the pre-update backup,
+  the RouterOS install, or the RouterBOARD upgrade command fails — instead of
+  silently continuing (or rebooting) and reporting success.
+- **Release notes** no longer try to download hundreds of non-existent changelog
+  pages when the installed and latest RouterOS versions are far apart.
+- Router uptime is read correctly right after a reboot when RouterOS briefly
+  reports it in milliseconds.
+- The integration now reconnects reliably even if the host clock jumps backwards
+  (e.g. an NTP correction after boot).
+
+### 🔒 Privacy
+- The router's address is now redacted from downloadable diagnostics.
+
+### 🔧 Changed
+- RouterOS API sessions are now closed when the integration is reloaded or
+  removed, and after the connection test during setup/reauth — preventing slow
+  session build-up on routers with a low API session limit.
+- A custom **Update interval** that is out of range (from an imported or
+  hand-edited configuration) is clamped to the supported 1–3600 s.
+
 ## 2.4.7
 
 ### 🐛 Fixed
