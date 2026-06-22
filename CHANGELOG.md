@@ -4,6 +4,12 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.4.9
+
+### Improvements
+
+- Default scan interval raised from 30s to 60s to reduce Home Assistant database write load.
+
 ## 2.4.8
 
 ### 🐛 Fixed
