@@ -149,6 +149,13 @@ class MikrotikHostDeviceTracker(MikrotikDeviceTracker):
     def option_track_network_hosts_timeout(self):
         """Config entry option scan interval."""
         track_network_hosts_timeout = self._config_entry.options.get(CONF_TRACK_HOSTS_TIMEOUT, DEFAULT_TRACK_HOST_TIMEOUT)
+        # Clamp defensively: a hand-edited / imported config can store 0 or a
+        # negative value, which would make every wired host immediately (or
+        # permanently) not_home.
+        try:
+            track_network_hosts_timeout = max(1, int(track_network_hosts_timeout))
+        except (TypeError, ValueError):
+            track_network_hosts_timeout = DEFAULT_TRACK_HOST_TIMEOUT
         return timedelta(seconds=track_network_hosts_timeout)
 
     @property

@@ -105,8 +105,6 @@ class MikrotikAPI:
     def connect(self) -> bool:
         """Connect to Mikrotik device."""
         self.error = ""
-        self._connected = False
-        self._connection_epoch = monotonic()
 
         kwargs = {
             "encoding": self._encoding,
@@ -115,6 +113,16 @@ class MikrotikAPI:
         }
 
         with self.lock:
+            # Another executor job (the main and tracker coordinators poll
+            # concurrently) may have reconnected while we waited for the lock.
+            # Re-check inside the lock so we don't open a second session and
+            # overwrite — and leak — the one it just established. The connected
+            # flag / epoch are reset here, after the re-check, so a late caller
+            # cannot clobber a connection a previous caller already made.
+            if self._connected and self._connection is not None:
+                return self._connected
+            self._connected = False
+            self._connection_epoch = monotonic()
             try:
                 if self._use_ssl:
                     self._ensure_ssl_wrapper()
@@ -416,6 +424,11 @@ class MikrotikAPI:
 
         if use_accounting:
             accounting = self.query("/ip/accounting", return_list=False)
+            if accounting is None:
+                # Accounting path absent/unavailable (optional feature). Don't
+                # call None(...) — that would trip the except below and
+                # disconnect the whole integration over an optional snapshot.
+                return 0
 
             with self.lock:
                 try:

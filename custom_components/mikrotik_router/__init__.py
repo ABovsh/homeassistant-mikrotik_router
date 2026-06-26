@@ -275,9 +275,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: MikrotikConfigEnt
     """Set up a config entry."""
     _async_register_services(hass)
     coordinator = MikrotikCoordinator(hass, config_entry)
-    await coordinator.async_config_entry_first_refresh()
-    coordinator_tracker = MikrotikTrackerCoordinator(hass, config_entry, coordinator)
-    await coordinator_tracker.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        coordinator_tracker = MikrotikTrackerCoordinator(hass, config_entry, coordinator)
+        await coordinator_tracker.async_config_entry_first_refresh()
+    except Exception:
+        # The first refresh can connect and then a later setup step can fail
+        # (e.g. ConfigEntryNotReady on the tracker refresh). runtime_data was
+        # never assigned, so async_unload_entry has nothing to disconnect —
+        # close the session here so it doesn't leak across HA's setup retries.
+        await hass.async_add_executor_job(coordinator.api.disconnect, "setup_failed")
+        raise
+
     config_entry.runtime_data = MikrotikData(
         data_coordinator=coordinator,
         tracker_coordinator=coordinator_tracker,

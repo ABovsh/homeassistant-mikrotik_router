@@ -4,6 +4,30 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.4.10
+
+### 🐛 Fixed
+- A dropped connection no longer occasionally opens a second router API session
+  and leaves the first one stranded, which on routers with a low session limit
+  could eventually cause *Connection reset by peer*.
+- Enabling client-traffic (accounting) sensors on a router where accounting is
+  disabled or unavailable no longer knocks the whole integration offline.
+- Routers with a virtual wireless interface whose master interface isn't listed
+  no longer go *Unavailable* during a refresh.
+- The accounting near-threshold warning no longer stops the traffic update on
+  some RouterOS versions.
+- A Netwatch host with no reported status now shows *Unknown* instead of falsely
+  appearing **Connected**.
+- LTE signal sensors ignore malformed (non-numeric) readings instead of pushing a
+  bad value into history.
+- A failed initial connection during setup now closes its router API session
+  instead of leaving it open until the router times it out.
+
+### 🔧 Changed
+- The **Host tracking timeout** option is now a bounded field (1–86400 s); a `0`
+  or negative value (from an imported or hand-edited configuration) is corrected
+  so wired-host trackers can't get stuck *away*.
+
 ## 2.4.9
 
 ### Improvements

@@ -2065,7 +2065,20 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             for _signal_field in ("rsrp", "rsrq", "rssi"):
                 _v = iface.get(_signal_field)
                 try:
-                    if _v is None or float(_v) == 0:
+                    # NaN/Inf parse without error and are != 0, so they would
+                    # otherwise slip through and poison statistics — reject any
+                    # non-finite value here too.
+                    if _v is None or not math.isfinite(float(_v)) or float(_v) == 0:
+                        iface[_signal_field] = None
+                except (TypeError, ValueError, OverflowError):
+                    iface[_signal_field] = None
+
+            # sinr/cqi keep a legitimate 0, but a non-finite reading is still
+            # invalid for a statistics-bearing sensor.
+            for _signal_field in ("sinr", "cqi"):
+                _v = iface.get(_signal_field)
+                try:
+                    if _v is not None and not math.isfinite(float(_v)):
                         iface[_signal_field] = None
                 except (TypeError, ValueError, OverflowError):
                     iface[_signal_field] = None
@@ -2545,10 +2558,16 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         )
 
         for uid in self.ds["wireless"]:
-            if self.ds["wireless"][uid]["master-interface"]:
-                for tmp in self.ds["wireless"][uid]:
-                    if self.ds["wireless"][uid][tmp] == "unknown":
-                        self.ds["wireless"][uid][tmp] = self.ds["wireless"][self.ds["wireless"][uid]["master-interface"]][tmp]
+            master_name = self.ds["wireless"][uid]["master-interface"]
+            if master_name:
+                # The master row may be absent from the parsed wireless table
+                # (different module, filtered, or firmware-omitted). Skip
+                # inheritance instead of raising KeyError and aborting the poll.
+                master = self.ds["wireless"].get(master_name)
+                if master:
+                    for tmp in self.ds["wireless"][uid]:
+                        if self.ds["wireless"][uid][tmp] == "unknown" and tmp in master:
+                            self.ds["wireless"][uid][tmp] = master[tmp]
 
             if uid in self.ds["interface"]:
                 for tmp in self.ds["wireless"][uid]:
@@ -3100,6 +3119,14 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         accounting_config = self.api.query("/ip/accounting")
         threshold = accounting_config[0].get("threshold") if accounting_config else None
         if threshold is None:
+            return
+
+        # RouterOS API values commonly arrive as strings; coerce before the
+        # numeric comparisons below (str * 0.9 would raise TypeError and abort
+        # the accounting update cycle).
+        try:
+            threshold = int(str(threshold).strip())
+        except (TypeError, ValueError):
             return
 
         if entry_count == threshold:

@@ -251,7 +251,15 @@ class MikrotikControllerOptionsFlowHandler(OptionsFlowWithConfigEntry):
                     vol.Optional(
                         CONF_TRACK_HOSTS_TIMEOUT,
                         default=self._options.get(CONF_TRACK_HOSTS_TIMEOUT, DEFAULT_TRACK_HOST_TIMEOUT),
-                    ): int,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1,
+                            max=86400,
+                            step=1,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="seconds",
+                        )
+                    ),
                     vol.Optional(
                         CONF_ZONE,
                         default=self._options.get(CONF_ZONE, STATE_HOME),

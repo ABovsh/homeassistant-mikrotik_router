@@ -49,9 +49,13 @@ class MikrotikBinarySensor(MikrotikEntity, BinarySensorEntity):
     """Define an Mikrotik Controller Binary Sensor."""
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return true if device is on."""
-        return self._data[self.entity_description.data_attribute]
+        value = self._data[self.entity_description.data_attribute]
+        # A field that is absent/unrecognized can fall through as a non-bool
+        # default (e.g. Netwatch "status" → the string "unknown"). Report None
+        # (unavailable) instead of letting a truthy string read as "on".
+        return value if isinstance(value, bool) else None
 
     @property
     def icon(self) -> str:
