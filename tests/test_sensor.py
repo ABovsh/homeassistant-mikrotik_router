@@ -223,3 +223,38 @@ def test_dhcp_client_sensor_reads_attribute(dhcp_client_data, attribute, expecte
     )
     sensor = _build_sensor(dhcp_client_data, desc, uid="ether1")
     assert sensor.native_value == expected
+
+
+# ---------------------------------------------------------------------------
+# interface link-downs flap counter (added 2026-06-28 to track the LHG <-> Keenetic
+# ether1 physical link flapping that surfaces as "MikroTik down 1-2 min").
+# ---------------------------------------------------------------------------
+
+
+def test_link_downs_sensor_is_defined_as_total_increasing():
+    """A per-interface link-downs counter must exist as a monotonic TOTAL_INCREASING
+    diagnostic so HA history records every physical link flap and automations can
+    alert on a delta. Pins the wiring so a refactor can't silently drop it."""
+    from homeassistant.components.sensor import SensorStateClass
+
+    desc = next(s for s in SENSOR_TYPES if s.key == "link_downs")
+    assert desc.data_path == "interface"
+    assert desc.data_attribute == "link-downs"
+    assert desc.data_reference == "default-name"
+    assert desc.state_class == SensorStateClass.TOTAL_INCREASING
+
+
+def test_link_downs_sensor_reads_counter_value():
+    """native_value returns the interface's link-downs count for the uid."""
+    desc = next(s for s in SENSOR_TYPES if s.key == "link_downs")
+    data = {
+        "interface": {
+            "ether1": {
+                "default-name": "ether1",
+                "name": "ether1",
+                "link-downs": 385,
+            }
+        }
+    }
+    sensor = _build_sensor(data, desc, uid="ether1")
+    assert sensor.native_value == 385
