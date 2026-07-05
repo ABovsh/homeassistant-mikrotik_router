@@ -173,7 +173,7 @@ class TestMikrotikRouterOSUpdate:
                 }
             ),
         )
-        assert "mikrotik.com" in entity.release_url
+        assert entity.release_url == "https://mikrotik.com/download/changelogs"
 
 
 # ---------------------------------------------------------------------------

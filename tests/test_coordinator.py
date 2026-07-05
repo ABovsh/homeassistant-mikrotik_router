@@ -928,6 +928,26 @@ async def test_resolve_manufacturer_error_sets_empty_string():
 
 
 @pytest.mark.asyncio
+async def test_resolve_manufacturer_failure_masks_mac_in_log(caplog):
+    """The lookup-failure debug log keeps the OUI but never the full MAC."""
+    mac = "AA:BB:CC:DD:EE:FF"
+    coordinator = make_coordinator_for_host(
+        arp_entries={mac: {"mac-address": mac, "address": "192.168.1.10", "interface": "ether1"}},
+        host_entries={mac: _host_entry(mac)},
+    )
+
+    coordinator.async_mac_lookup.lookup = AsyncMock(side_effect=OSError("lookup DB unavailable"))
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.mikrotik_router.coordinator"):
+        await coordinator.async_process_host()
+
+    messages = [r.getMessage() for r in caplog.records if "vendor lookup failed" in r.getMessage()]
+    assert messages, "expected a lookup-failure debug log"
+    assert all(mac not in m for m in messages)
+    assert any("AA:BB:CC" in m for m in messages)
+
+
+@pytest.mark.asyncio
 async def test_resolve_manufacturer_concurrent_partial_failure():
     """One MAC lookup failure does not affect other concurrent lookups."""
     mac1, mac2 = "AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"

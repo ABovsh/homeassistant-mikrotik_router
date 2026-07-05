@@ -2935,7 +2935,8 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         try:
             self.ds["host"][uid]["manufacturer"] = await self.async_mac_lookup.lookup(mac)
         except Exception as err:
-            _LOGGER.debug("MAC vendor lookup failed for %s: %s", mac, err)
+            # Log only the OUI (vendor prefix) — full MACs are client identifiers.
+            _LOGGER.debug("MAC vendor lookup failed for %s:xx:xx:xx: %s", mac[:8], err)
             self.ds["host"][uid]["manufacturer"] = ""
 
     # ---------------------------
