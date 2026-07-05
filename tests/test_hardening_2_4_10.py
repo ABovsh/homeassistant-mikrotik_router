@@ -27,7 +27,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from custom_components.mikrotik_router import __init__ as mikrotik_init
+import custom_components.mikrotik_router as mikrotik_init
 from custom_components.mikrotik_router.binary_sensor import MikrotikBinarySensor
 from custom_components.mikrotik_router.coordinator import MikrotikCoordinator
 from custom_components.mikrotik_router.device_tracker import MikrotikHostDeviceTracker
