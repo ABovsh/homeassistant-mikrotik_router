@@ -3,8 +3,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from packaging.version import Version
 
+import custom_components.mikrotik_router.update as update_module
 from custom_components.mikrotik_router.update import (
     MikrotikRouterOSUpdate,
     MikrotikRouterBoardFWUpdate,
@@ -103,6 +105,34 @@ _FW_UPDATE_DESC = {
 }
 
 
+def _make_fw_coordinator():
+    coord = make_mock_coordinator()
+    coord.data["fw-update"] = {
+        "installed-version": "7.16.1",
+        "latest-version": "7.16.2",
+        "available": True,
+    }
+    coord.async_request_refresh = AsyncMock()
+    return coord
+
+
+def _refresh_applies_version(coord, after_polls=1, key="fw-update", installed="installed-version", target="7.16.2"):
+    """Make coordinator refresh reflect the router coming back on the new version."""
+    state = {"polls": 0}
+
+    async def _refresh():
+        state["polls"] += 1
+        if state["polls"] >= after_polls:
+            coord.data[key][installed] = target
+
+    coord.async_request_refresh = AsyncMock(side_effect=_refresh)
+
+
+def _fast_install_polling(monkeypatch, timeout=0.05, interval=0.001):
+    monkeypatch.setattr(update_module, "INSTALL_TIMEOUT", timeout)
+    monkeypatch.setattr(update_module, "INSTALL_POLL_INTERVAL", interval)
+
+
 # ---------------------------------------------------------------------------
 # MikrotikRouterOSUpdate
 # ---------------------------------------------------------------------------
@@ -130,25 +160,19 @@ class TestMikrotikRouterOSUpdate:
         assert entity.latest_version == "7.16.2"
 
     @pytest.mark.asyncio
-    async def test_async_install_without_backup(self):
-        coord = make_mock_coordinator()
-        coord.data["fw-update"] = {
-            "installed-version": "7.16.1",
-            "latest-version": "7.16.2",
-            "available": True,
-        }
+    async def test_async_install_without_backup(self, monkeypatch):
+        coord = _make_fw_coordinator()
+        _refresh_applies_version(coord)
+        _fast_install_polling(monkeypatch)
         entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
         await entity.async_install(version="7.16.2", backup=False)
         coord.execute.assert_called_once_with("/system/package/update", "install", None, None)
 
     @pytest.mark.asyncio
-    async def test_async_install_with_backup(self):
-        coord = make_mock_coordinator()
-        coord.data["fw-update"] = {
-            "installed-version": "7.16.1",
-            "latest-version": "7.16.2",
-            "available": True,
-        }
+    async def test_async_install_with_backup(self, monkeypatch):
+        coord = _make_fw_coordinator()
+        _refresh_applies_version(coord)
+        _fast_install_polling(monkeypatch)
         entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
         await entity.async_install(version="7.16.2", backup=True)
         assert coord.execute.call_count == 2
@@ -157,6 +181,50 @@ class TestMikrotikRouterOSUpdate:
         assert backup_call[1] == "save"
         install_call = coord.execute.call_args_list[1][0]
         assert install_call[0] == "/system/package/update"
+
+    @pytest.mark.asyncio
+    async def test_async_install_waits_for_new_version(self, monkeypatch):
+        """Install must not return until the router reports the target version."""
+        coord = _make_fw_coordinator()
+        _refresh_applies_version(coord, after_polls=3)
+        _fast_install_polling(monkeypatch)
+        entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
+        await entity.async_install(version="7.16.2", backup=False)
+        assert coord.async_request_refresh.await_count == 3
+        assert entity.installed_version == "7.16.2"
+
+    @pytest.mark.asyncio
+    async def test_async_install_failed_command_while_connected_raises(self, monkeypatch):
+        """execute()=False with the API still up is a genuine command failure."""
+        coord = _make_fw_coordinator()
+        coord.execute = MagicMock(return_value=False)
+        coord.api.connected = MagicMock(return_value=True)
+        _fast_install_polling(monkeypatch)
+        entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
+        with pytest.raises(HomeAssistantError):
+            await entity.async_install(version="7.16.2", backup=False)
+        coord.async_request_refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_async_install_connection_drop_is_not_a_failure(self, monkeypatch):
+        """execute()=False because the router rebooted mid-install must still wait for completion."""
+        coord = _make_fw_coordinator()
+        coord.execute = MagicMock(return_value=False)
+        coord.api.connected = MagicMock(return_value=False)
+        _refresh_applies_version(coord)
+        _fast_install_polling(monkeypatch)
+        entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
+        await entity.async_install(version="7.16.2", backup=False)
+        assert entity.installed_version == "7.16.2"
+
+    @pytest.mark.asyncio
+    async def test_async_install_timeout_raises(self, monkeypatch):
+        """If the router never comes back on the target version, raise instead of silence."""
+        coord = _make_fw_coordinator()
+        _fast_install_polling(monkeypatch)  # refresh never changes the version
+        entity = _make_update_entity(coordinator=coord, desc_overrides={**_FW_UPDATE_DESC})
+        with pytest.raises(HomeAssistantError, match="did not report"):
+            await entity.async_install(version="7.16.2", backup=False)
 
     def test_release_url(self):
         entity = _make_update_entity(
@@ -220,13 +288,15 @@ class TestMikrotikRouterBoardFWUpdate:
         assert entity.latest_version == "7.16.2"
 
     @pytest.mark.asyncio
-    async def test_async_install_upgrades_and_reboots(self):
+    async def test_async_install_upgrades_and_reboots(self, monkeypatch):
         coord = make_mock_coordinator()
         coord.data["routerboard"] = {
             "serial-number": "X",
             "current-firmware": "7.16.1",
             "upgrade-firmware": "7.16.2",
         }
+        _refresh_applies_version(coord, key="routerboard", installed="current-firmware")
+        _fast_install_polling(monkeypatch)
         entity = _make_update_entity(
             cls=MikrotikRouterBoardFWUpdate,
             coordinator=coord,
@@ -240,3 +310,25 @@ class TestMikrotikRouterBoardFWUpdate:
         reboot_call = coord.execute.call_args_list[1][0]
         assert reboot_call[0] == "/system"
         assert reboot_call[1] == "reboot"
+
+    @pytest.mark.asyncio
+    async def test_async_install_waits_for_new_firmware(self, monkeypatch):
+        """RouterBOARD upgrade must wait through the reboot until current-firmware matches."""
+        coord = make_mock_coordinator()
+        coord.data["routerboard"] = {
+            "serial-number": "X",
+            "current-firmware": "7.16.1",
+            "upgrade-firmware": "7.16.2",
+        }
+        # reboot execute dies with the connection — must not be treated as failure
+        coord.execute = MagicMock(side_effect=[True, False])
+        coord.api.connected = MagicMock(return_value=False)
+        _refresh_applies_version(coord, after_polls=2, key="routerboard", installed="current-firmware")
+        _fast_install_polling(monkeypatch)
+        entity = _make_update_entity(
+            cls=MikrotikRouterBoardFWUpdate,
+            coordinator=coord,
+            desc_overrides={**_RB_UPDATE_DESC},
+        )
+        await entity.async_install(version="7.16.2", backup=False)
+        assert entity.installed_version == "7.16.2"

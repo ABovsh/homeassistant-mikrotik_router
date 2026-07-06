@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from logging import getLogger
+from time import monotonic
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -35,6 +36,44 @@ DEVICE_UPDATE = "device_update"
 # them all at the MikroTik CDN at once.
 MAX_CHANGELOG_VERSIONS = 60
 
+# An install downloads the package (slow on LTE backhaul) and reboots the
+# router; keep async_install running until the device comes back on the target
+# version so HA's in-progress state reflects the whole upgrade, not just the
+# API call.
+INSTALL_TIMEOUT = 900
+INSTALL_POLL_INTERVAL = 20
+
+
+class MikrotikInstallWaitMixin:
+    """Shared post-install completion handling for MikroTik update entities."""
+
+    async def _async_finish_install(self, target: str, command_ok: bool, what: str) -> None:
+        """Wait through download+reboot until the router reports the target version.
+
+        A False from execute() with the API connection gone is expected — the
+        install/reboot kills the session — and must not be reported as failure.
+        """
+        if not command_ok:
+            if self.coordinator.api.connected():
+                raise HomeAssistantError(f"MikroTik {what} command failed")
+            _LOGGER.info(
+                "MikroTik %s: API connection dropped during install — router is likely rebooting",
+                what,
+            )
+
+        deadline = monotonic() + INSTALL_TIMEOUT
+        while monotonic() < deadline:
+            await asyncio.sleep(INSTALL_POLL_INTERVAL)
+            await self.coordinator.async_request_refresh()
+            if self.installed_version == target:
+                _LOGGER.info("MikroTik %s completed: now on %s", what, target)
+                return
+
+        raise HomeAssistantError(
+            f"MikroTik {what}: router did not report version {target} "
+            f"within {INSTALL_TIMEOUT}s — check the device manually"
+        )
+
 
 # ---------------------------
 #   async_setup_entry
@@ -55,7 +94,7 @@ async def async_setup_entry(
 # ---------------------------
 #   MikrotikRouterOSUpdate
 # ---------------------------
-class MikrotikRouterOSUpdate(MikrotikEntity, UpdateEntity):
+class MikrotikRouterOSUpdate(MikrotikEntity, UpdateEntity, MikrotikInstallWaitMixin):
     """Define an Mikrotik Controller Update entity."""
 
     def __init__(
@@ -99,9 +138,9 @@ class MikrotikRouterOSUpdate(MikrotikEntity, UpdateEntity):
                 # pre-update backup did not succeed.
                 raise HomeAssistantError("MikroTik backup before update failed; install aborted")
 
+        target = self.latest_version
         install_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system/package/update", "install", None, None)
-        if not install_ok:
-            raise HomeAssistantError("MikroTik RouterOS update install command failed")
+        await self._async_finish_install(target, bool(install_ok), "RouterOS update install")
 
     async def async_release_notes(self) -> str:
         """Return the release notes."""
@@ -131,7 +170,7 @@ class MikrotikRouterOSUpdate(MikrotikEntity, UpdateEntity):
 # ---------------------------
 #   MikrotikRouterBoardFWUpdate
 # ---------------------------
-class MikrotikRouterBoardFWUpdate(MikrotikEntity, UpdateEntity):
+class MikrotikRouterBoardFWUpdate(MikrotikEntity, UpdateEntity, MikrotikInstallWaitMixin):
     """Define an Mikrotik Controller Update entity."""
 
     TYPE = DEVICE_UPDATE
@@ -173,7 +212,9 @@ class MikrotikRouterBoardFWUpdate(MikrotikEntity, UpdateEntity):
         if not upgrade_ok:
             # Don't reboot the router for an upgrade that wasn't staged.
             raise HomeAssistantError("MikroTik RouterBOARD firmware upgrade command failed; not rebooting")
-        await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
+        target = self.latest_version
+        reboot_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
+        await self._async_finish_install(target, bool(reboot_ok), "RouterBOARD firmware upgrade")
 
 
 async def fetch_changelog(session, version: str) -> str:
