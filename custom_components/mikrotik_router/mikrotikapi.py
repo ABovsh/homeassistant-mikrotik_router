@@ -329,6 +329,44 @@ class MikrotikAPI:
 
         return True
 
+    def execute_blocking(self, path: str, command: str, args: dict | None = None, timeout: int = 1800) -> bool:
+        """Run a long-blocking command on a dedicated connection.
+
+        The shared session uses librouteros' 10s socket timeout; commands that
+        block for minutes (e.g. an LTE modem firmware flash) would kill it and
+        stall every poll behind the lock. A private connection lets the main
+        session keep polling and gives the command its own timeout.
+        """
+        kwargs: dict = {
+            "encoding": self._encoding,
+            "login_methods": self._login_method,
+            "port": self._port,
+            "timeout": timeout,
+        }
+        conn = None
+        try:
+            if self._use_ssl:
+                self._ensure_ssl_wrapper()
+                kwargs["ssl_wrapper"] = self._ssl_wrapper
+            conn = librouteros.connect(self._host, self._username, self._password, **kwargs)
+            tuple(conn.path(path)(command, **(args or {})))
+            return True
+        except Exception as e:
+            _LOGGER.error(
+                "Mikrotik %s blocking command %s %s failed: %s",
+                self._host,
+                path,
+                command,
+                e,
+            )
+            return False
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as e:  # noqa: BLE001 - best-effort cleanup
+                    _LOGGER.debug("Mikrotik %s error closing blocking connection: %s", self._host, e)
+
     def run_script(self, name: str) -> bool:
         """Run script."""
         if not self.connection_check():

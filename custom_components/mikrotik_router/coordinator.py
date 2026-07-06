@@ -293,6 +293,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             "ups": {},
             "gps": {},
             "lte": {},
+            "lte_modem_fw": {},
             "netwatch": {},
             "raw": {},
             "container": {},
@@ -648,6 +649,10 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             self.get_system_routerboard,
         ]:
             await self._run_if_enabled(func)
+
+        # Contacts MikroTik's upgrade server over the (possibly metered) LTE
+        # link — belongs in this 4h cycle, never in the per-minute poll.
+        await self._run_if_enabled(self.get_lte_modem_fw, requires=self.support_lte)
 
         await self._run_if_enabled(self.get_script, requires=self.option_sensor_scripts)
 
@@ -1964,6 +1969,47 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if rsrp_f == 0 or rsrq_f == 0:
             return None
         return round(rsrp_f - rsrq_f + 10 * math.log10(rb))
+
+    # ---------------------------
+    #   get_lte_modem_fw
+    # ---------------------------
+    def get_lte_modem_fw(self) -> None:
+        """Check LTE modem firmware upgrade availability.
+
+        `/interface/lte/firmware-upgrade` contacts MikroTik's upgrade server
+        through the LTE data connection, so a failed check (link down, server
+        unreachable) is normal — keep the previously known versions instead of
+        wiping them.
+        """
+        if not self.support_lte:
+            return
+
+        ifaces = self.api.query("/interface/lte", disconnect_on_error=False) or []
+        for iface in ifaces:
+            name = iface.get("name")
+            if not name:
+                continue
+            result = self.api.query(
+                "/interface/lte",
+                command="firmware-upgrade",
+                args={".id": name},
+                disconnect_on_error=False,
+            )
+            if not result:
+                continue
+            installed = result[-1].get("installed") or "unknown"
+            # No "latest" (server unreachable / no newer build) → report
+            # up-to-date rather than a phantom update.
+            latest = result[-1].get("latest") or installed
+            # Update entities hold a reference to this dict — mutate in place.
+            self.ds["lte_modem_fw"].setdefault(name, {}).update(
+                {
+                    "name": name,
+                    "installed": installed,
+                    "latest": latest,
+                    "available": installed != latest,
+                }
+            )
 
     # ---------------------------
     #   get_lte

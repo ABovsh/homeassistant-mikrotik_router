@@ -296,3 +296,74 @@ class TestDetectLteSupport:
         coordinator.support_lte = False
         coordinator._detect_lte_support()
         assert coordinator.support_lte is False
+
+
+# ---------------------------------------------------------------------------
+# Group L4: get_lte_modem_fw — modem firmware availability
+# ---------------------------------------------------------------------------
+
+SAMPLE_MODEM_FW = [{"installed": "R11e-LTE_V028", "latest": "R11e-LTE_V030"}]
+
+
+def make_modem_fw_coordinator(fw_source=None, iface_source=None, support_lte=True):
+    coordinator = object.__new__(MikrotikCoordinator)
+    coordinator.ds = {"lte": {}, "lte_modem_fw": {}}
+    coordinator.support_lte = support_lte
+    responses = {"/interface/lte": iface_source if iface_source is not None else SAMPLE_IFACE}
+    if fw_source is not None:
+        responses[("/interface/lte", "firmware-upgrade")] = fw_source
+    coordinator.api = MockMikrotikAPI(responses=responses)
+    return coordinator
+
+
+class TestGetLteModemFw:
+    def test_populates_versions(self):
+        coordinator = make_modem_fw_coordinator(fw_source=SAMPLE_MODEM_FW)
+        coordinator.get_lte_modem_fw()
+        entry = coordinator.ds["lte_modem_fw"]["lte1"]
+        assert entry["name"] == "lte1"
+        assert entry["installed"] == "R11e-LTE_V028"
+        assert entry["latest"] == "R11e-LTE_V030"
+        assert entry["available"] is True
+
+    def test_up_to_date(self):
+        coordinator = make_modem_fw_coordinator(
+            fw_source=[{"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}]
+        )
+        coordinator.get_lte_modem_fw()
+        assert coordinator.ds["lte_modem_fw"]["lte1"]["available"] is False
+
+    def test_server_unreachable_keeps_previous_data(self):
+        """A failed check (e.g. LTE down) must not wipe known versions."""
+        coordinator = make_modem_fw_coordinator(fw_source=None)
+        coordinator.ds["lte_modem_fw"]["lte1"] = {
+            "name": "lte1",
+            "installed": "R11e-LTE_V028",
+            "latest": "R11e-LTE_V030",
+            "available": True,
+        }
+        coordinator.get_lte_modem_fw()
+        assert coordinator.ds["lte_modem_fw"]["lte1"]["installed"] == "R11e-LTE_V028"
+
+    def test_missing_latest_reports_no_update(self):
+        coordinator = make_modem_fw_coordinator(fw_source=[{"installed": "R11e-LTE_V028"}])
+        coordinator.get_lte_modem_fw()
+        entry = coordinator.ds["lte_modem_fw"]["lte1"]
+        assert entry["latest"] == "R11e-LTE_V028"
+        assert entry["available"] is False
+
+    def test_mutates_entry_in_place(self):
+        """Update entities keep a reference to the entry dict — never replace it."""
+        coordinator = make_modem_fw_coordinator(fw_source=SAMPLE_MODEM_FW)
+        coordinator.get_lte_modem_fw()
+        ref = coordinator.ds["lte_modem_fw"]["lte1"]
+        coordinator.api.responses[("/interface/lte", "firmware-upgrade")] = [
+            {"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}
+        ]
+        coordinator.get_lte_modem_fw()
+        assert ref["installed"] == "R11e-LTE_V030"
+
+    def test_no_lte_support_skips(self):
+        coordinator = make_modem_fw_coordinator(fw_source=SAMPLE_MODEM_FW, support_lte=False)
+        coordinator.get_lte_modem_fw()
+        assert coordinator.ds["lte_modem_fw"] == {}

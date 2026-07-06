@@ -43,11 +43,15 @@ MAX_CHANGELOG_VERSIONS = 60
 INSTALL_TIMEOUT = 900
 INSTALL_POLL_INTERVAL = 20
 
+# The modem flash blocks on the router for several minutes (download rides the
+# LTE link itself); it runs on a dedicated API connection with this timeout.
+MODEM_FLASH_TIMEOUT = 1800
+
 
 class MikrotikInstallWaitMixin:
     """Shared post-install completion handling for MikroTik update entities."""
 
-    async def _async_finish_install(self, target: str, command_ok: bool, what: str) -> None:
+    async def _async_finish_install(self, target: str, command_ok: bool, what: str, refresh=None) -> None:
         """Wait through download+reboot until the router reports the target version.
 
         A False from execute() with the API connection gone is expected — the
@@ -61,10 +65,13 @@ class MikrotikInstallWaitMixin:
                 what,
             )
 
+        if refresh is None:
+            refresh = self.coordinator.async_request_refresh
+
         deadline = monotonic() + INSTALL_TIMEOUT
         while monotonic() < deadline:
             await asyncio.sleep(INSTALL_POLL_INTERVAL)
-            await self.coordinator.async_request_refresh()
+            await refresh()
             if self.installed_version == target:
                 _LOGGER.info("MikroTik %s completed: now on %s", what, target)
                 return
@@ -87,6 +94,7 @@ async def async_setup_entry(
     dispatcher = {
         "MikrotikRouterOSUpdate": MikrotikRouterOSUpdate,
         "MikrotikRouterBoardFWUpdate": MikrotikRouterBoardFWUpdate,
+        "MikrotikLTEModemFWUpdate": MikrotikLTEModemFWUpdate,
     }
     await async_add_entities(hass, config_entry, dispatcher)
 
@@ -215,6 +223,83 @@ class MikrotikRouterBoardFWUpdate(MikrotikEntity, UpdateEntity, MikrotikInstallW
         target = self.latest_version
         reboot_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
         await self._async_finish_install(target, bool(reboot_ok), "RouterBOARD firmware upgrade")
+
+
+# ---------------------------
+#   MikrotikLTEModemFWUpdate
+# ---------------------------
+class MikrotikLTEModemFWUpdate(MikrotikEntity, UpdateEntity, MikrotikInstallWaitMixin):
+    """LTE modem firmware update entity (one per LTE interface)."""
+
+    TYPE = DEVICE_UPDATE
+    _attr_device_class = UpdateDeviceClass.FIRMWARE
+
+    def __init__(
+        self,
+        coordinator: MikrotikCoordinator,
+        entity_description,
+        uid: str | None = None,
+    ):
+        """Set up modem firmware update entity."""
+        super().__init__(coordinator, entity_description, uid)
+
+        self._attr_supported_features = UpdateEntityFeature.INSTALL
+        self._attr_title = self.entity_description.title
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if an update is available."""
+        return self._data[self.entity_description.data_attribute]
+
+    @property
+    def installed_version(self) -> str:
+        """Version installed and in use."""
+        return self._data["installed"]
+
+    @property
+    def latest_version(self) -> str:
+        """Latest version available for install."""
+        return self._data["latest"]
+
+    async def options_updated(self) -> None:
+        """No action needed."""
+
+    async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
+        """Flash the modem firmware, then reboot the router to boot it."""
+        target = self.latest_version
+        flash_ok = await self.hass.async_add_executor_job(
+            self.coordinator.api.execute_blocking,
+            "/interface/lte",
+            "firmware-upgrade",
+            {".id": self._data["name"], "upgrade": "yes"},
+            MODEM_FLASH_TIMEOUT,
+        )
+        if not flash_ok:
+            # The flash may still be running on the router; a blind reboot
+            # here could interrupt it and brick the modem.
+            raise HomeAssistantError(
+                "MikroTik LTE modem firmware upgrade did not confirm completion; "
+                "not rebooting — check the device before retrying"
+            )
+
+        reboot_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
+        await self._async_finish_install(
+            target,
+            bool(reboot_ok),
+            "LTE modem firmware upgrade",
+            refresh=self._async_refresh_modem_fw,
+        )
+
+    async def _async_refresh_modem_fw(self) -> None:
+        """Refresh modem firmware info during the completion wait.
+
+        The 4h hwinfo cycle refreshes it once on reconnect, but that check
+        needs the LTE data link — often still re-registering right after the
+        reboot — so re-run it directly on every poll until it answers.
+        """
+        await self.coordinator.async_request_refresh()
+        if self.coordinator.api.connected():
+            await self.hass.async_add_executor_job(self.coordinator.get_lte_modem_fw)
 
 
 async def fetch_changelog(session, version: str) -> str:

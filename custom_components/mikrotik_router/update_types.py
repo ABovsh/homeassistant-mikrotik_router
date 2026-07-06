@@ -50,6 +50,17 @@ SENSOR_TYPES: tuple[MikrotikUpdateEntityDescription, ...] = (
         data_reference="",
         func="MikrotikRouterBoardFWUpdate",
     ),
+    MikrotikUpdateEntityDescription(
+        key="lte_modem_fwupdate",
+        name="LTE modem firmware update",
+        ha_group="System",
+        title="Mikrotik LTE modem firmware",
+        data_path="lte_modem_fw",
+        data_name="name",
+        data_uid="",
+        data_reference="name",
+        func="MikrotikLTEModemFWUpdate",
+    ),
 )
 
 

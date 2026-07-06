@@ -10,6 +10,8 @@ import custom_components.mikrotik_router.update as update_module
 from custom_components.mikrotik_router.update import (
     MikrotikRouterOSUpdate,
     MikrotikRouterBoardFWUpdate,
+    MikrotikLTEModemFWUpdate,
+    MODEM_FLASH_TIMEOUT,
     generate_version_list,
     decrement_version,
 )
@@ -332,3 +334,97 @@ class TestMikrotikRouterBoardFWUpdate:
         )
         await entity.async_install(version="7.16.2", backup=False)
         assert entity.installed_version == "7.16.2"
+
+
+# ---------------------------------------------------------------------------
+# MikrotikLTEModemFWUpdate
+# ---------------------------------------------------------------------------
+
+
+_MODEM_UPDATE_DESC = {
+    "data_path": "lte_modem_fw",
+    "data_attribute": "available",
+    "data_reference": "name",
+    "data_name": "name",
+    "title": "LTE modem firmware",
+}
+
+
+def _make_modem_coordinator(installed="R11e-LTE_V028", latest="R11e-LTE_V030"):
+    coord = make_mock_coordinator()
+    coord.data["lte_modem_fw"] = {
+        "lte1": {
+            "name": "lte1",
+            "installed": installed,
+            "latest": latest,
+            "available": installed != latest,
+        }
+    }
+    coord.async_request_refresh = AsyncMock()
+    coord.api.execute_blocking = MagicMock(return_value=True)
+
+    def _fw_refresh():
+        pass
+
+    coord.get_lte_modem_fw = MagicMock(side_effect=_fw_refresh)
+    return coord
+
+
+def _modem_entity(coord):
+    return _make_update_entity(
+        cls=MikrotikLTEModemFWUpdate,
+        coordinator=coord,
+        desc_overrides={**_MODEM_UPDATE_DESC},
+        uid="lte1",
+    )
+
+
+class TestMikrotikLTEModemFWUpdate:
+    def test_versions(self):
+        entity = _modem_entity(_make_modem_coordinator())
+        assert entity.installed_version == "R11e-LTE_V028"
+        assert entity.latest_version == "R11e-LTE_V030"
+
+    @pytest.mark.asyncio
+    async def test_async_install_flashes_then_reboots_and_waits(self, monkeypatch):
+        coord = _make_modem_coordinator()
+        coord.get_lte_modem_fw = MagicMock(
+            side_effect=lambda: coord.data["lte_modem_fw"]["lte1"].update(
+                {"installed": "R11e-LTE_V030"}
+            )
+        )
+        coord.api.connected = MagicMock(return_value=True)
+        _fast_install_polling(monkeypatch)
+        entity = _modem_entity(coord)
+        await entity.async_install(version="R11e-LTE_V030", backup=False)
+        coord.api.execute_blocking.assert_called_once_with(
+            "/interface/lte",
+            "firmware-upgrade",
+            {".id": "lte1", "upgrade": "yes"},
+            MODEM_FLASH_TIMEOUT,
+        )
+        reboot_call = coord.execute.call_args_list[-1][0]
+        assert reboot_call[0] == "/system"
+        assert reboot_call[1] == "reboot"
+        assert entity.installed_version == "R11e-LTE_V030"
+
+    @pytest.mark.asyncio
+    async def test_async_install_flash_failure_never_reboots(self, monkeypatch):
+        """An unconfirmed flash must never be followed by a blind reboot."""
+        coord = _make_modem_coordinator()
+        coord.api.execute_blocking = MagicMock(return_value=False)
+        _fast_install_polling(monkeypatch)
+        entity = _modem_entity(coord)
+        with pytest.raises(HomeAssistantError, match="not rebooting"):
+            await entity.async_install(version="R11e-LTE_V030", backup=False)
+        coord.execute.assert_not_called()
+        coord.async_request_refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_async_install_timeout_raises(self, monkeypatch):
+        coord = _make_modem_coordinator()
+        coord.api.connected = MagicMock(return_value=True)
+        _fast_install_polling(monkeypatch)  # fw info never changes
+        entity = _modem_entity(coord)
+        with pytest.raises(HomeAssistantError, match="did not report"):
+            await entity.async_install(version="R11e-LTE_V030", backup=False)
