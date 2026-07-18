@@ -108,7 +108,7 @@ def _parse_uptime_to_seconds(uptime_str: str) -> int:
     uptime_str = re.sub(r"\d++ms", "", uptime_str)
     total = 0
     for unit, multiplier in _UPTIME_UNITS:
-        match = re.split(rf"(\d+){unit}", uptime_str)
+        match = re.split(rf"(\d++){unit}", uptime_str)
         if len(match) > 1:
             total += int(match[1]) * multiplier
     return total
