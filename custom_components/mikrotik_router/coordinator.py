@@ -78,6 +78,8 @@ from .mikrotikapi import MikrotikAPI
 
 _LOGGER = logging.getLogger(__name__)
 
+LTE_PATH = "/interface/lte"
+
 DEFAULT_TIME_ZONE = None
 
 
@@ -103,7 +105,7 @@ def _parse_uptime_to_seconds(uptime_str: str) -> int:
     # Strip any milliseconds token first (RouterOS can report sub-second uptime
     # right after a reboot). Otherwise the 'm'/'s' unit regexes below misread the
     # digits of e.g. '500ms' as 500 minutes.
-    uptime_str = re.sub(r"\d+ms", "", uptime_str)
+    uptime_str = re.sub(r"\d++ms", "", uptime_str)
     total = 0
     for unit, multiplier in _UPTIME_UNITS:
         match = re.split(rf"(\d+){unit}", uptime_str)
@@ -600,7 +602,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         # whose RouterOS build lacks the /interface/lte path, a hard-failing query
         # would call disconnect() and take an otherwise-healthy non-LTE router
         # offline. Absent/empty path simply means "no LTE".
-        ifaces = self.api.query("/interface/lte", disconnect_on_error=False)
+        ifaces = self.api.query(LTE_PATH, disconnect_on_error=False)
         self.support_lte = bool(ifaces)
 
     async def async_get_host_hass(self):
@@ -1633,7 +1635,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
     # ---------------------------
     def get_system_routerboard(self) -> None:
         """Get routerboard data from Mikrotik"""
-        if self.ds["resource"]["board-name"].startswith("x86") or self.ds["resource"]["board-name"].startswith("CHR"):
+        if self.ds["resource"]["board-name"].startswith(("x86", "CHR")):
             self.ds["routerboard"]["routerboard"] = False
             self.ds["routerboard"]["model"] = self.ds["resource"]["board-name"]
             self.ds["routerboard"]["serial-number"] = "N/A"
@@ -1984,13 +1986,13 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if not self.support_lte:
             return
 
-        ifaces = self.api.query("/interface/lte", disconnect_on_error=False) or []
+        ifaces = self.api.query(LTE_PATH, disconnect_on_error=False) or []
         for iface in ifaces:
             name = iface.get("name")
             if not name:
                 continue
             result = self.api.query(
-                "/interface/lte",
+                LTE_PATH,
                 command="firmware-upgrade",
                 args={".id": name},
                 disconnect_on_error=False,
@@ -2016,7 +2018,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
     # ---------------------------
     def get_lte(self) -> None:
         """Get LTE interface data from Mikrotik (auto-discovers all LTE interfaces)."""
-        iface_source = self.api.query("/interface/lte")
+        iface_source = self.api.query(LTE_PATH)
         if not iface_source:
             self.ds["lte"] = {}
             return
@@ -2048,7 +2050,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             if not iface_id:
                 continue
             monitor = self.api.query(
-                "/interface/lte",
+                LTE_PATH,
                 command="monitor",
                 args={".id": iface_name, "once": True},
                 disconnect_on_error=False,

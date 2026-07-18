@@ -24,6 +24,8 @@ from homeassistant.const import (
 )
 
 from .const import DOMAIN
+
+ICON_SIGNAL_4G = "mdi:signal-4g"
 from .iface_attributes import (
     DEVICE_ATTRIBUTES_IFACE,
 )
@@ -947,7 +949,7 @@ SENSOR_TYPES: tuple[MikrotikSensorEntityDescription, ...] = (
     MikrotikSensorEntityDescription(
         key="lte_rsrp",
         name="RSRP",
-        icon="mdi:signal-4g",
+        icon=ICON_SIGNAL_4G,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
@@ -965,7 +967,7 @@ SENSOR_TYPES: tuple[MikrotikSensorEntityDescription, ...] = (
     MikrotikSensorEntityDescription(
         key="lte_rsrq",
         name="RSRQ",
-        icon="mdi:signal-4g",
+        icon=ICON_SIGNAL_4G,
         native_unit_of_measurement="dB",
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -982,7 +984,7 @@ SENSOR_TYPES: tuple[MikrotikSensorEntityDescription, ...] = (
     MikrotikSensorEntityDescription(
         key="lte_sinr",
         name="SINR",
-        icon="mdi:signal-4g",
+        icon=ICON_SIGNAL_4G,
         native_unit_of_measurement="dB",
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -999,7 +1001,7 @@ SENSOR_TYPES: tuple[MikrotikSensorEntityDescription, ...] = (
     MikrotikSensorEntityDescription(
         key="lte_rssi",
         name="RSSI",
-        icon="mdi:signal-4g",
+        icon=ICON_SIGNAL_4G,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,

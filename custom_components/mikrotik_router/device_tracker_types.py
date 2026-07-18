@@ -33,7 +33,7 @@ class MikrotikDeviceTrackerEntityDescription(SwitchEntityDescription):
 
     key: str | None = None
     name: str | None = None
-    device_class = None
+    device_class: str | None = None
     icon_enabled: str | None = None
     icon_disabled: str | None = None
     ha_group: str | None = None

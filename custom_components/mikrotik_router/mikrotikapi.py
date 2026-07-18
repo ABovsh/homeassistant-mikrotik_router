@@ -130,7 +130,7 @@ class MikrotikAPI:
                 self._connection = librouteros.connect(self._host, self._username, self._password, **kwargs)
             except Exception as e:
                 if not self.connection_error_reported:
-                    _LOGGER.error("Mikrotik %s error while connecting: %s", self._host, e)
+                    _LOGGER.exception("Mikrotik %s error while connecting: %s", self._host, e)
                     self.connection_error_reported = True
                 self.error_to_strings(f"{e}")
                 self._connection = None
@@ -352,7 +352,7 @@ class MikrotikAPI:
             tuple(conn.path(path)(command, **(args or {})))
             return True
         except Exception as e:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Mikrotik %s blocking command %s %s failed: %s",
                 self._host,
                 path,
