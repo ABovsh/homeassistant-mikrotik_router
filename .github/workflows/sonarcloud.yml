@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -12,7 +13,7 @@ jobs:
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
-    # Fork has no SonarCloud project/token yet; skip instead of failing every push.
+    # Gated by repo var SONAR_ENABLED (project + token live since 2026-07-18).
     if: ${{ vars.SONAR_ENABLED == 'true' }}
     permissions:
       contents: read
