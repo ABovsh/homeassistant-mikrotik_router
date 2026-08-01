@@ -14,7 +14,10 @@ jobs:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     # Gated by repo var SONAR_ENABLED (project + token live since 2026-07-18).
-    if: ${{ vars.SONAR_ENABLED == 'true' }}
+    # Dependabot branches read the dependabot secret store, where SONAR_TOKEN
+    # doesn't exist — the scanner would fail with "Not authorized" on every
+    # bump PR. Skip instead of failing.
+    if: ${{ vars.SONAR_ENABLED == 'true' && github.actor != 'dependabot[bot]' }}
     permissions:
       contents: read
       pull-requests: read
