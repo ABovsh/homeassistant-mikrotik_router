@@ -25,12 +25,12 @@ from homeassistant.const import (
 
 from .const import DOMAIN
 
-ICON_SIGNAL_4G = "mdi:signal-4g"
 from .iface_attributes import (
     DEVICE_ATTRIBUTES_IFACE,
 )
 
 # Icon constants (SonarCloud S1192 — avoid duplicated literals)
+ICON_SIGNAL_4G = "mdi:signal-4g"
 ICON_THERMOMETER = "mdi:thermometer"
 ICON_LIGHTNING = "mdi:lightning-bolt"
 ICON_FAN = "mdi:fan"
