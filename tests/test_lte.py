@@ -327,9 +327,7 @@ class TestGetLteModemFw:
         assert entry["available"] is True
 
     def test_up_to_date(self):
-        coordinator = make_modem_fw_coordinator(
-            fw_source=[{"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}]
-        )
+        coordinator = make_modem_fw_coordinator(fw_source=[{"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}])
         coordinator.get_lte_modem_fw()
         assert coordinator.ds["lte_modem_fw"]["lte1"]["available"] is False
 
@@ -357,9 +355,7 @@ class TestGetLteModemFw:
         coordinator = make_modem_fw_coordinator(fw_source=SAMPLE_MODEM_FW)
         coordinator.get_lte_modem_fw()
         ref = coordinator.ds["lte_modem_fw"]["lte1"]
-        coordinator.api.responses[("/interface/lte", "firmware-upgrade")] = [
-            {"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}
-        ]
+        coordinator.api.responses[("/interface/lte", "firmware-upgrade")] = [{"installed": "R11e-LTE_V030", "latest": "R11e-LTE_V030"}]
         coordinator.get_lte_modem_fw()
         assert ref["installed"] == "R11e-LTE_V030"
 

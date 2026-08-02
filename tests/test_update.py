@@ -388,11 +388,7 @@ class TestMikrotikLTEModemFWUpdate:
     @pytest.mark.asyncio
     async def test_async_install_flashes_then_reboots_and_waits(self, monkeypatch):
         coord = _make_modem_coordinator()
-        coord.get_lte_modem_fw = MagicMock(
-            side_effect=lambda: coord.data["lte_modem_fw"]["lte1"].update(
-                {"installed": "R11e-LTE_V030"}
-            )
-        )
+        coord.get_lte_modem_fw = MagicMock(side_effect=lambda: coord.data["lte_modem_fw"]["lte1"].update({"installed": "R11e-LTE_V030"}))
         coord.api.connected = MagicMock(return_value=True)
         _fast_install_polling(monkeypatch)
         entity = _modem_entity(coord)

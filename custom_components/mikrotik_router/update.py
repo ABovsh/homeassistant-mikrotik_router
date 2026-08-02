@@ -76,10 +76,7 @@ class MikrotikInstallWaitMixin:
                 _LOGGER.info("MikroTik %s completed: now on %s", what, target)
                 return
 
-        raise HomeAssistantError(
-            f"MikroTik {what}: router did not report version {target} "
-            f"within {INSTALL_TIMEOUT}s — check the device manually"
-        )
+        raise HomeAssistantError(f"MikroTik {what}: router did not report version {target} within {INSTALL_TIMEOUT}s — check the device manually")
 
 
 # ---------------------------
@@ -277,10 +274,7 @@ class MikrotikLTEModemFWUpdate(MikrotikEntity, UpdateEntity, MikrotikInstallWait
         if not flash_ok:
             # The flash may still be running on the router; a blind reboot
             # here could interrupt it and brick the modem.
-            raise HomeAssistantError(
-                "MikroTik LTE modem firmware upgrade did not confirm completion; "
-                "not rebooting — check the device before retrying"
-            )
+            raise HomeAssistantError("MikroTik LTE modem firmware upgrade did not confirm completion; not rebooting — check the device before retrying")
 
         reboot_ok = await self.hass.async_add_executor_job(self.coordinator.execute, "/system", "reboot", None, None)
         await self._async_finish_install(
