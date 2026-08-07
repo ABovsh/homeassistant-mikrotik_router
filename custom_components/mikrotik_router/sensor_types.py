@@ -59,7 +59,10 @@ DEVICE_ATTRIBUTES_DHCP_CLIENT = [
     "gateway",
     "dns-server",
     "dhcp-server",
-    "expires-after",
+    # "expires-after" removed: it is a lease countdown that decrements on every
+    # poll, so it forced a history row per poll on a sensor whose own state
+    # (the IP) only changes at lease renewal. A countdown has no steady value
+    # to hold, so a deadband cannot rescue it.
     "comment",
 ]
 DEVICE_ATTRIBUTES_DHCP_SERVER = [

@@ -46,18 +46,112 @@ _LOGGER = getLogger(__name__)
 _JUNK_DEFAULTS = frozenset({"unknown", "none", "N/A"})
 
 
-def copy_attrs(attributes: dict, data: dict, variables: list, *, skip_junk: bool = False) -> None:
+# Attributes whose raw value moves on essentially every poll while the
+# entity's own STATE does not — RSSI on a device_tracker that says "home",
+# battery voltage on a UPS binary_sensor that says "online". Home Assistant
+# writes a history row whenever the state or ANY attribute changes, so each of
+# these costs one database row per poll, per entity, indefinitely.
+#
+# Each entry is (absolute_floor, relative_fraction): a new value is published
+# only once it differs from the LAST PUBLISHED value by at least
+# max(absolute_floor, relative_fraction * magnitude). Rounding is not enough on
+# its own — a value that dithers across a rounding boundary (59/61) still
+# writes every poll; only comparing against what was last published fixes it.
+ATTRIBUTE_DEADBANDS: dict[str, tuple[float, float]] = {
+    # Wi-Fi radio conditions wander continuously for a stationary device.
+    "signal-strength": (4.0, 0.0),
+    "signal-to-noise": (4.0, 0.0),
+    "tx-ccq": (10.0, 0.0),
+    "rx-ccq": (10.0, 0.0),
+    # Negotiated link rates span three orders of magnitude, so they need a
+    # relative band rather than a fixed step.
+    "tx-rate": (0.0, 0.15),
+    "rx-rate": (0.0, 0.15),
+    # UPS analog telemetry.
+    "battery-voltage": (0.5, 0.0),
+    "line-voltage": (3.0, 0.0),
+    "battery-charge": (3.0, 0.0),
+    "load": (5.0, 0.0),
+    # GPS jitters even while completely stationary.
+    "speed": (2.0, 0.0),
+    "destination-bearing": (5.0, 0.0),
+    "true-bearing": (5.0, 0.0),
+    "magnetic-bearing": (5.0, 0.0),
+    "satellites": (2.0, 0.0),
+    "horizontal-dilution": (0.5, 0.0),
+}
+
+
+def publishable_value(variable: str, value: Any, previous: Any) -> Any:
+    """Return *previous* when *value* has not moved enough to be worth a row.
+
+    Anything this cannot compare as a number — strings, None, booleans — is
+    passed straight through untouched. A damping helper must never mangle a
+    value it does not understand.
+    """
+    band = ATTRIBUTE_DEADBANDS.get(variable)
+    if band is None or previous is None:
+        return value
+    if isinstance(value, bool) or isinstance(previous, bool):
+        return value
+    try:
+        current = float(value)
+        last = float(previous)
+    except (TypeError, ValueError):
+        return value
+    # Dropping to zero is information: a link went quiet, a load went away.
+    if current == 0:
+        return value
+    floor, fraction = band
+    threshold = max(floor, fraction * max(abs(current), abs(last)))
+    if abs(current - last) >= threshold:
+        return value
+    return previous
+
+
+class AttributeDeadbandMixin:
+    """Owns the per-entity last-published values used by ``copy_attrs``.
+
+    Lazily created rather than set in ``__init__`` so that mixins and tests
+    that construct entities by other routes still work.
+    """
+
+    @property
+    def _attribute_deadband_state(self) -> dict:
+        state = getattr(self, "_deadband_values", None)
+        if state is None:
+            state = {}
+            self._deadband_values = state
+        return state
+
+
+def copy_attrs(
+    attributes: dict,
+    data: dict,
+    variables: list,
+    *,
+    skip_junk: bool = False,
+    deadband_state: dict | None = None,
+) -> None:
     """Copy data values for each variable in the list into attributes.
 
     When *skip_junk* is True, values that are meaningless defaults
     ("unknown", "none", "N/A", or None) are omitted so that entities
     only expose attributes that carry real information.
+
+    When *deadband_state* is supplied (a per-entity dict the caller owns),
+    attributes listed in ``ATTRIBUTE_DEADBANDS`` are held at their last
+    published value until they move meaningfully. Callers that pass nothing
+    keep the original behaviour exactly.
     """
     for variable in variables:
         if variable in data:
             value = data[variable]
             if skip_junk and (value is None or (isinstance(value, str) and value in _JUNK_DEFAULTS)):
                 continue
+            if deadband_state is not None:
+                value = publishable_value(variable, value, deadband_state.get(variable))
+                deadband_state[variable] = value
             attributes[format_attribute(variable)] = value
 
 
@@ -269,7 +363,7 @@ _MikrotikCoordinatorT = TypeVar(
 # ---------------------------
 #   MikrotikEntity
 # ---------------------------
-class MikrotikEntity(CoordinatorEntity[_MikrotikCoordinatorT], Entity):
+class MikrotikEntity(AttributeDeadbandMixin, CoordinatorEntity[_MikrotikCoordinatorT], Entity):
     """Define entity"""
 
     _attr_has_entity_name = True
@@ -407,7 +501,12 @@ class MikrotikEntity(CoordinatorEntity[_MikrotikCoordinatorT], Entity):
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return the state attributes."""
         attributes = super().extra_state_attributes
-        copy_attrs(attributes, self._data, self.entity_description.data_attributes_list)
+        copy_attrs(
+            attributes,
+            self._data,
+            self.entity_description.data_attributes_list,
+            deadband_state=self._attribute_deadband_state,
+        )
         return attributes
 
     async def start(self):  # pragma: no cover

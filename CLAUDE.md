@@ -33,12 +33,12 @@
 ## Deploy to live HA (cp + restart)
 
 1. **Back up the live dir OUTSIDE `custom_components/`:**
-   `cp -r /mnt/ha/custom_components/mikrotik_router /mnt/ha/_integration_backups/mikrotik_router-<ts>`.
+   `cp -r /opt/ha/config/custom_components/mikrotik_router /opt/ha/config/_integration_backups/mikrotik_router-<ts>`.
    NEVER back up to a sibling like `custom_components/mikrotik_router.backup-<ts>` — HA scans every
    subdir of `custom_components/` as an integration and the dotted name breaks setup of the real one
    (→ all entities `unavailable`).
-2. `cp -r custom_components/mikrotik_router/. /mnt/ha/custom_components/mikrotik_router/`
-3. `rm -rf /mnt/ha/custom_components/mikrotik_router/__pycache__`
+2. `cp -r custom_components/mikrotik_router/. /opt/ha/config/custom_components/mikrotik_router/`
+3. `rm -rf /opt/ha/config/custom_components/mikrotik_router/__pycache__`
 4. **Restart HA** (not config-entry reload — new Python needs reimport; reload reuses the cached module).
    Token in `/opt/scripts/ha-config.env`. Verify `sensor.mikrotik_lte_rsrp` is not `unavailable`.
 

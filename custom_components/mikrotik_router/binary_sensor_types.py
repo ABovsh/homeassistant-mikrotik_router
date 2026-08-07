@@ -34,7 +34,8 @@ DEVICE_ATTRIBUTES_UPS = [
     "serial",
     "manufacture-date",
     "nominal-battery-voltage",
-    "runtime-left",
+    # "runtime-left" removed for the same reason as the DHCP lease countdown:
+    # it ticks down every poll on an entity whose state is just online/offline.
     "battery-charge",
     "battery-voltage",
     "line-voltage",

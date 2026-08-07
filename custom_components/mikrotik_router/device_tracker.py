@@ -199,6 +199,11 @@ class MikrotikHostDeviceTracker(MikrotikDeviceTracker):
 
         # Wireless metrics only for wireless hosts
         if self._data.get("is_wireless", False):
-            copy_attrs(attributes, self._data, DEVICE_ATTRIBUTES_HOST_WIRELESS)
+            copy_attrs(
+                attributes,
+                self._data,
+                DEVICE_ATTRIBUTES_HOST_WIRELESS,
+                deadband_state=self._attribute_deadband_state,
+            )
 
         return attributes
