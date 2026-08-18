@@ -281,6 +281,31 @@ class TestQuery:
         assert result is None
         assert api.disable_health is True
 
+    def test_dhcp_client_supout_error_disables(self):
+        # Some RouterOS builds trap on /ip/dhcp-client with a generic internal
+        # error ("contact MikroTik support...") when the device has no DHCP
+        # client configured at all (e.g. LTE-only WAN). Treat it like the
+        # /system/health "no such command prefix" case: disable, don't churn
+        # the whole connection every poll.
+        api = self._connected_api()
+        mock_path = MagicMock()
+        mock_path.__bool__ = MagicMock(return_value=True)
+        mock_path.__iter__ = MagicMock(
+            side_effect=Exception("error - contact MikroTik support and send a supout file (2)")
+        )
+        api._connection.path.return_value = mock_path
+        result = api.query("/ip/dhcp-client")
+        assert result is None
+        assert api.disable_dhcp_client is True
+        assert api._connected is True  # must NOT tear down the whole session
+
+    def test_dhcp_client_disabled_skips_query(self):
+        api = self._connected_api()
+        api.disable_dhcp_client = True
+        result = api.query("/ip/dhcp-client")
+        assert result is None
+        api._connection.path.assert_not_called()
+
 
 # --- set_value ---
 

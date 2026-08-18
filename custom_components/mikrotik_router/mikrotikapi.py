@@ -52,6 +52,7 @@ class MikrotikAPI:
         self.connection_error_reported = False
         self.client_traffic_last_run: int | None = None
         self.disable_health = False
+        self.disable_dhcp_client = False
 
         if not self._port:
             self._port = 8729 if self._use_ssl else 8728
@@ -184,6 +185,8 @@ class MikrotikAPI:
         """Retrieve data from Mikrotik API."""
         if path == "/system/health" and self.disable_health:
             return None
+        if path == "/ip/dhcp-client" and self.disable_dhcp_client:
+            return None
 
         if args is None:
             args = {}
@@ -216,6 +219,12 @@ class MikrotikAPI:
         except Exception as e:
             if path == "/system/health" and "no such command prefix" in str(e):
                 self.disable_health = True
+                return None
+            if path == "/ip/dhcp-client" and "contact MikroTik support" in str(e):
+                # Some RouterOS builds trap on this path when no DHCP client
+                # is configured at all (e.g. LTE-only WAN). Nothing to fetch,
+                # so stop asking instead of tearing down the whole session.
+                self.disable_dhcp_client = True
                 return None
             self.disconnect(f"building list for path {path}", e)
             return None

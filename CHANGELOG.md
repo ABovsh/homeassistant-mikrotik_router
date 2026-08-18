@@ -4,6 +4,14 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.5.1
+
+### 🐛 Fixed
+- Routers with no DHCP client configured at all (e.g. LTE-only WAN) no longer
+  spam an `/ip/dhcp-client` error every poll and tear down the whole API
+  session — some RouterOS builds trap on that path with a generic internal
+  error instead of returning an empty list.
+
 ## 2.4.10
 
 ### 🐛 Fixed
