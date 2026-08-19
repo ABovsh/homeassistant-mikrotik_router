@@ -290,9 +290,7 @@ class TestQuery:
         api = self._connected_api()
         mock_path = MagicMock()
         mock_path.__bool__ = MagicMock(return_value=True)
-        mock_path.__iter__ = MagicMock(
-            side_effect=Exception("error - contact MikroTik support and send a supout file (2)")
-        )
+        mock_path.__iter__ = MagicMock(side_effect=Exception("error - contact MikroTik support and send a supout file (2)"))
         api._connection.path.return_value = mock_path
         result = api.query("/ip/dhcp-client")
         assert result is None

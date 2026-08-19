@@ -4,6 +4,12 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.5.2
+
+### 🔧 Changed
+- Reformatted `tests/test_mikrotikapi.py` to satisfy `ruff format` (CI was
+  failing the format-check step).
+
 ## 2.5.1
 
 ### 🐛 Fixed
