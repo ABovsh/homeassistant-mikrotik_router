@@ -4,6 +4,17 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.5.3
+
+### 🐛 Fixed
+- A failed RouterOS update check (no DNS/internet — routine on an LTE WAN) no
+  longer reports a phantom "update available" with an `unknown` latest version,
+  and no longer makes the release-notes fetch return
+  "Error fetching release notes." The last known latest version is kept, or the
+  installed version if none was ever seen.
+- `available` is now false when the router's status string still claims an
+  update but the latest version equals the installed one.
+
 ## 2.5.2
 
 ### 🔧 Changed

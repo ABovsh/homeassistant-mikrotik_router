@@ -1819,6 +1819,7 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
         if "write" not in self.ds["access"] or "policy" not in self.ds["access"] or "reboot" not in self.ds["access"]:
             return
 
+        previous_latest = self.ds["fw-update"].get("latest-version", "unknown")
         self.execute("/system/package/update", "check-for-updates", None, None, {"duration": 10})
         self.ds["fw-update"] = parse_api(
             data=self.ds["fw-update"],
@@ -1831,11 +1832,15 @@ class MikrotikCoordinator(DataUpdateCoordinator[None]):
             ],
         )
 
-        if "status" in self.ds["fw-update"]:
-            self.ds["fw-update"]["available"] = self.ds["fw-update"]["status"] == "New version is available"
-
-        else:
+        # RouterOS omits latest-version when the check failed (no DNS/internet —
+        # routine on an LTE WAN) or while one is still running, which parse_api
+        # turns into the literal "unknown". Left as-is that reads as a phantom
+        # update in HA and makes the release-notes fetch choke on Version("unknown").
+        if self.ds["fw-update"]["latest-version"] == "unknown":
+            self.ds["fw-update"]["latest-version"] = previous_latest if previous_latest != "unknown" else self.ds["fw-update"]["installed-version"]
             self.ds["fw-update"]["available"] = False
+        else:
+            self.ds["fw-update"]["available"] = self.ds["fw-update"].get("status") == "New version is available" and self.ds["fw-update"]["latest-version"] != self.ds["fw-update"]["installed-version"]
 
         if self.ds["fw-update"]["installed-version"] != "unknown":
             try:

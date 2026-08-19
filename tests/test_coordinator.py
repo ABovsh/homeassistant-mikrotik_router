@@ -5308,3 +5308,93 @@ async def test_ensure_connected_raises_when_reconnect_fails():
     with pytest.raises(UpdateFailed):
         await coord._async_ensure_connected()
     coord.api.connection_check.assert_called_once()
+
+
+def test_firmware_update_check_failed_keeps_installed_as_latest():
+    """A failed check-for-updates must not leave 'unknown' as latest-version."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/package/update": [
+                {
+                    "status": "ERROR: IPv4: could not resolve dns name (timeout)",
+                    "channel": "stable",
+                    "installed-version": "7.24",
+                }
+            ]
+        }
+    )
+    coordinator.host = "10.0.0.1"
+    coordinator.execute = MagicMock()
+    coordinator.get_firmware_update()
+    assert coordinator.ds["fw-update"]["available"] is False
+    assert coordinator.ds["fw-update"]["latest-version"] == "7.24"
+
+
+def test_firmware_update_check_in_flight_is_not_an_update():
+    """Stale 'New version is available' with no latest-version must not flag an update.
+
+    RouterOS clears latest-version while a check is running but keeps the
+    previous status string, so the record read mid-check is half-updated.
+    """
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/package/update": [
+                {
+                    "status": "New version is available",
+                    "channel": "stable",
+                    "installed-version": "7.24",
+                }
+            ]
+        }
+    )
+    coordinator.host = "10.0.0.1"
+    coordinator.execute = MagicMock()
+    coordinator.get_firmware_update()
+    assert coordinator.ds["fw-update"]["available"] is False
+    assert coordinator.ds["fw-update"]["latest-version"] == "7.24"
+
+
+def test_firmware_update_failed_check_keeps_known_latest_version():
+    """A known latest-version survives a later failed check."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/package/update": [
+                {
+                    "status": "ERROR: IPv4: could not resolve dns name (timeout)",
+                    "channel": "stable",
+                    "installed-version": "7.16.1",
+                }
+            ]
+        }
+    )
+    coordinator.host = "10.0.0.1"
+    coordinator.execute = MagicMock()
+    coordinator.ds["fw-update"] = {
+        "status": "New version is available",
+        "installed-version": "7.16.1",
+        "latest-version": "7.16.2",
+        "available": True,
+    }
+    coordinator.get_firmware_update()
+    assert coordinator.ds["fw-update"]["latest-version"] == "7.16.2"
+    assert coordinator.ds["fw-update"]["available"] is False
+
+
+def test_firmware_update_status_matches_but_versions_equal():
+    """Status claims an update while latest == installed → no update."""
+    coordinator = make_coordinator(
+        api_responses={
+            "/system/package/update": [
+                {
+                    "status": "New version is available",
+                    "channel": "stable",
+                    "installed-version": "7.16.2",
+                    "latest-version": "7.16.2",
+                }
+            ]
+        }
+    )
+    coordinator.host = "10.0.0.1"
+    coordinator.execute = MagicMock()
+    coordinator.get_firmware_update()
+    assert coordinator.ds["fw-update"]["available"] is False
