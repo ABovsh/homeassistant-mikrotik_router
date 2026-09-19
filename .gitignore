@@ -47,3 +47,7 @@ docs/internal/*
 !.claude/agents/*.md
 !.claude/skills/
 !.claude/skills/**
+
+# Local agent instructions (kept out of the public repo)
+AGENTS.md
+CLAUDE.md
