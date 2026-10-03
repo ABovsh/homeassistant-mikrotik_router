@@ -9,6 +9,7 @@ from typing import Any, Callable, TypeVar
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_NAME, CONF_HOST
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
+    device_registry as dr,
     entity_platform as ep,
     entity_registry as er,
 )
@@ -41,6 +42,9 @@ from .iface_attributes import (
 )
 
 _LOGGER = getLogger(__name__)
+
+# Cores from 2026.9 take the parent's registry id; older ones only the tuple.
+_VIA_DEVICE_ID_SUPPORTED = "via_device_id" in DeviceInfo.__annotations__ and hasattr(dr.DeviceRegistry, "async_get_device_by_identifier")
 
 
 _JUNK_DEFAULTS = frozenset({"unknown", "none", "N/A"})
@@ -480,10 +484,7 @@ class MikrotikEntity(AttributeDeadbandMixin, CoordinatorEntity[_MikrotikCoordina
                 connections={(dev_connection, f"{dev_connection_value}")},
                 name=f"{dev_group}",
                 manufacturer=f"{dev_manufacturer}",
-                via_device=(
-                    DOMAIN,
-                    f"{self.coordinator.data['routerboard']['serial-number']}",
-                ),
+                **self._via_device(),
             )
         else:
             return DeviceInfo(
@@ -491,11 +492,21 @@ class MikrotikEntity(AttributeDeadbandMixin, CoordinatorEntity[_MikrotikCoordina
                 name=f"{self._inst} {dev_group}",
                 model=f"{self.coordinator.data['resource']['board-name']}",
                 manufacturer=f"{self.coordinator.data['resource']['platform']}",
-                via_device=(
-                    DOMAIN,
-                    f"{self.coordinator.data['routerboard']['serial-number']}",
-                ),
+                **self._via_device(),
             )
+
+    def _via_device(self) -> dict[str, Any]:
+        """Link this device to the router's System device.
+
+        HA 2026.9 deprecates the `via_device` identifier tuple (removed in 2027.8)
+        for `via_device_id`, the registry id of the parent. Core reads device_info
+        before it sets self.hass, so the registry comes from the coordinator.
+        """
+        parent = (DOMAIN, f"{self.coordinator.data['routerboard']['serial-number']}")
+        if not _VIA_DEVICE_ID_SUPPORTED:
+            return {"via_device": parent}
+        device = dr.async_get(self.coordinator.hass).async_get_device_by_identifier(parent, self.coordinator.config_entry.entry_id)
+        return {"via_device_id": device.id} if device else {}
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any]:

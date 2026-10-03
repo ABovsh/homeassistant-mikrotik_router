@@ -4,6 +4,14 @@ All notable changes to this fork are documented here. This fork adds LTE
 signal/band sensors and an LTE-only mode switch on top of the upstream
 `jnctech/homeassistant-mikrotik_router` integration.
 
+## 2.5.4
+
+### 🐛 Fixed
+- Child devices now link to the router through `via_device_id` on Home
+  Assistant 2026.9 and later, removing the `via_device` deprecation warning
+  logged at every startup. `via_device` stops working in 2027.8. Older Home
+  Assistant versions keep using `via_device`.
+
 ## 2.5.3
 
 ### 🐛 Fixed

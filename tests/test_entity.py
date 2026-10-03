@@ -316,7 +316,104 @@ class TestMikrotikEntityDeviceInfo:
             uid="rule1",
         )
         info = entity.device_info
-        assert "via_device" in info
+        assert "via_device" in info or "via_device_id" in info
+
+
+class TestMikrotikEntityViaDevice:
+    """Child devices link to the router's System device.
+
+    HA 2026.9 deprecates the `via_device` identifier tuple (removed in 2027.8) in
+    favour of `via_device_id`, the registry id of the parent; older cores accept
+    only `via_device`.
+    """
+
+    @staticmethod
+    def _nat_entity():
+        coord = make_mock_coordinator()
+        coord.config_entry.entry_id = "entry1"
+        coord.data["nat"] = {"rule1": {"name": "NAT Rule 1"}}
+        return _make_entity(
+            coordinator=coord,
+            desc_overrides={
+                "ha_group": "NAT",
+                "data_path": "nat",
+                "data_reference": "name",
+                "data_name": "name",
+                "ha_connection": None,
+                "ha_connection_value": None,
+            },
+            uid="rule1",
+        )
+
+    def test_new_core_links_by_registry_id_of_parent_in_same_entry(self):
+        entity = self._nat_entity()
+        registry = MagicMock()
+        registry.async_get_device_by_identifier.return_value = MagicMock(id="sysdev1")
+        with (
+            patch("custom_components.mikrotik_router.entity._VIA_DEVICE_ID_SUPPORTED", True),
+            patch("custom_components.mikrotik_router.entity.dr.async_get", return_value=registry) as get_reg,
+        ):
+            info = entity.device_info
+        get_reg.assert_called_once_with(entity.coordinator.hass)
+        registry.async_get_device_by_identifier.assert_called_once_with(("mikrotik_router", "HGR1234567"), "entry1")
+        assert info["via_device_id"] == "sysdev1"
+        assert "via_device" not in info
+
+    def test_new_core_omits_link_when_parent_not_registered(self):
+        entity = self._nat_entity()
+        registry = MagicMock()
+        registry.async_get_device_by_identifier.return_value = None
+        with (
+            patch("custom_components.mikrotik_router.entity._VIA_DEVICE_ID_SUPPORTED", True),
+            patch("custom_components.mikrotik_router.entity.dr.async_get", return_value=registry),
+        ):
+            info = entity.device_info
+        assert "via_device_id" not in info
+        assert "via_device" not in info
+
+    def test_old_core_keeps_via_device_tuple(self):
+        entity = self._nat_entity()
+        with (
+            patch("custom_components.mikrotik_router.entity._VIA_DEVICE_ID_SUPPORTED", False),
+            patch("custom_components.mikrotik_router.entity.dr.async_get") as get_reg,
+        ):
+            info = entity.device_info
+        get_reg.assert_not_called()
+        assert info["via_device"] == ("mikrotik_router", "HGR1234567")
+        assert "via_device_id" not in info
+
+    def test_mac_address_device_uses_same_link(self):
+        coord = make_mock_coordinator()
+        coord.config_entry.entry_id = "entry1"
+        coord.data["interface"] = {"ether1": {"name": "ether1", "mac-address": "AA:BB:CC:DD:EE:FF"}}
+        entity = _make_entity(
+            coordinator=coord,
+            desc_overrides={
+                "ha_group": "Interface",
+                "data_path": "interface",
+                "data_reference": "mac-address",
+                "data_name": "name",
+                "ha_connection": None,
+                "ha_connection_value": "data__mac-address",
+            },
+            uid="ether1",
+        )
+        registry = MagicMock()
+        registry.async_get_device_by_identifier.return_value = MagicMock(id="sysdev1")
+        with (
+            patch("custom_components.mikrotik_router.entity._VIA_DEVICE_ID_SUPPORTED", True),
+            patch("custom_components.mikrotik_router.entity.dr.async_get", return_value=registry),
+        ):
+            info = entity.device_info
+        assert info["via_device_id"] == "sysdev1"
+        assert "via_device" not in info
+
+    def test_support_flag_matches_installed_core(self):
+        from homeassistant.helpers import device_registry
+
+        from custom_components.mikrotik_router import entity as entity_mod
+
+        assert entity_mod._VIA_DEVICE_ID_SUPPORTED == ("via_device_id" in device_registry.DeviceInfo.__annotations__ and hasattr(device_registry.DeviceRegistry, "async_get_device_by_identifier"))
 
 
 # ---------------------------------------------------------------------------
